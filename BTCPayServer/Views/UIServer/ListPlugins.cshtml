@@ -121,7 +121,7 @@
         You need to restart BTCPay Server in order to update your active plugins.
         @if (Model.CanShowRestart)
         {
-            <form method="post" asp-action="Maintenance" class="mt-2">
+            <form method="post" asp-action="Maintenance">
                 <button type="submit" name="command" value="restart" class="btn btn-info" asp-action="Maintenance">Restart now</button>
             </form>
         }
