@@ -51,20 +51,20 @@
         @if (!Model.Started && Model.StartDate.HasValue)
         {
             <h6 class="text-muted fst-italic" v-if="!started && srvModel.startDate" v-b-tooltip :title="startDate" v-text="`starts in ${startDiff}`" data-test="time-state">
-                starts @TimeZoneInfo.ConvertTimeFromUtc(Model.StartDate.Value, TimeZoneInfo.Local)
+                Starts @TimeZoneInfo.ConvertTimeFromUtc(Model.StartDate.Value, TimeZoneInfo.Local)
             </h6>
         }
         else if (Model.Started && !Model.Ended && Model.EndDate.HasValue)
         {
             <h6 class="text-muted fst-italic" v-if="started && !ended && srvModel.endDate" v-b-tooltip :title="endDate" v-text="`ends in ${endDiff}`" data-test="time-state">
-                ends @TimeZoneInfo.ConvertTimeFromUtc(Model.EndDate.Value, TimeZoneInfo.Local)
+                Ends @TimeZoneInfo.ConvertTimeFromUtc(Model.EndDate.Value, TimeZoneInfo.Local)
             </h6>
         }
         else if (Model.Started && !Model.Ended && !Model.EndDate.HasValue)
         {
-            <h6 class="text-muted fst-italic" v-if="started && !ended && !srvModel.endDate" v-b-tooltip title="No set end date" data-test="time-state">
-                currently active!
-            </h6>
+            <h5 class="fw-normal" v-if="started && !ended && !srvModel.endDate" v-b-tooltip title="No set end date" data-test="time-state">
+                Currently active!
+            </h5>
         }
 
         @if (Model.TargetAmount.HasValue)
@@ -78,7 +78,7 @@
                     <span v-if="srvModel.resetEvery !== 'Never'"
                           class="h5 ms-1"
                           v-b-tooltip
-                          :title="'Goal resets every ' + srvModel.resetEveryAmount + ' ' + srvModel.resetEvery + ((srvModel.resetEveryAmount>1)?'s': '')">
+                          :title="'Goal resets every ' + srvModel.resetEveryAmount + ' ' + srvModel.resetEvery + ((srvModel.resetEveryAmount>1)?'s': '.')">
                         Recurring
                     </span>
                 }
@@ -86,14 +86,14 @@
                 {
                     <span v-if="srvModel.enforceTargetAmount" class="h5 ms-1">
                         Hardcap Goal
-                        <span class="fa fa-question-circle" v-b-tooltip title="No contributions allowed after the goal has been reached"></span>
+                        <span class="fa fa-question-circle" v-b-tooltip title="No contributions are allowed after the goal has been reached."></span>
                     </span>
                 }
                 else
                 {
                     <span v-if="!srvModel.enforceTargetAmount" class="h5 ms-1">
                         Softcap Goal
-                        <span class="fa fa-question-circle" v-b-tooltip title="Contributions allowed even after goal is reached"></span>
+                        <span class="fa fa-question-circle" v-b-tooltip title="Contributions are allowed even after goal is reached."></span>
                     </span>
                 }
             </span>
@@ -132,7 +132,7 @@
 
                 <div class="container">
                     <div class="row pt-2 pb-4 crowdfund-stats">
-                        <div class="col-sm py-4" id="crowdfund-body-raised-amount">
+                        <div class="col-sm py-3 py-lg-4" id="crowdfund-body-raised-amount">
                             <h3 v-text="`${raisedAmount} ${targetCurrency}`">@Math.Round(Model.Info.CurrentAmount + Model.Info.CurrentPendingAmount, Model.CurrencyData.Divisibility) @Model.TargetCurrency</h3>
                             <h5 class="text-muted fw-normal mb-0">Raised</h5>
                             <b-tooltip target="crowdfund-body-raised-amount" v-if="paymentStats && paymentStats.length > 0" class="only-for-js">
@@ -144,7 +144,7 @@
                             </b-tooltip>
                         </div>
 
-                        <div class="col-sm py-4" id="crowdfund-body-goal-raised">
+                        <div class="col-sm py-3 py-lg-4" id="crowdfund-body-goal-raised">
                             <h3 v-text="`${percentageRaisedAmount}%`">@Math.Round(Model.Info.PendingProgressPercentage.GetValueOrDefault(0) + Model.Info.ProgressPercentage.GetValueOrDefault(0))%</h3>
                             <h5 class="text-muted fw-normal mb-0">Funded</h5>
                             <b-tooltip target="crowdfund-body-goal-raised" v-if="srvModel.resetEvery !== 'Never'" class="only-for-js">
@@ -152,26 +152,31 @@
                             </b-tooltip>
                         </div>
 
-                        <div class="col-sm py-4" id="crowdfund-body-total-contributors">
+                        <div class="col-sm py-3 py-lg-4" id="crowdfund-body-total-contributors">
                             <h3 v-text="new Intl.NumberFormat().format(srvModel.info.totalContributors)">@Model.Info.TotalContributors</h3>
                             <h5 class="text-muted fw-normal mb-0">Contributors</h5>
                         </div>
                         @if (Model.StartDate.HasValue || Model.EndDate.HasValue)
                         {
-                            <div class="col-sm py-4" id="crowdfund-body-campaign-dates">
+                            <div class="col-sm py-3 py-lg-4" id="crowdfund-body-campaign-dates">
                                 @if (!Model.Started && Model.StartDate.HasValue)
                                 {
                                     <div v-if="startDiff">
                                         <h3 v-text="startDiff">@TimeZoneInfo.ConvertTimeFromUtc(Model.StartDate.Value, TimeZoneInfo.Local)</h3>
-                                        <h5 class="text-muted fst-italic mb-0" v-text="'Left to start'">Start Date</h5>
+                                        <h5 class="text-muted fw-normal mb-0" v-text="'Left to start'">Start Date</h5>
                                     </div>
+                                }
+                                else if (Model.Started && Model.StartDate.HasValue && !Model.Ended)
+                                {
+                                    <div v-if="startDate">
+                                        <h3 v-text="startDiff">{{startDate}}</h3>
+                                        <h5 class="text-muted fw-normal mb-0" v-text="'Started'">Start Date</h5>
+                                    </div>
+
                                 }
                                 else if (Model.Started && !Model.Ended && Model.EndDate.HasValue)
                                 {
-                                    <div v-if="!startDiff && endDiff">
-                                        <h3 v-text="endDiff">@TimeZoneInfo.ConvertTimeFromUtc(Model.EndDate.Value, TimeZoneInfo.Local)</h3>
-                                        <h5 class="text-muted fst-italic mb-0" v-text="'Left'">End Date</h5>
-                                    </div>
+                                    
                                 }
                                 else if (Model.Ended)
                                 {
@@ -336,10 +341,11 @@
                     <span class="text-muted">
                         <template v-if="perk.price && perk.price.value">
                             {{formatAmount(perk.price.value.noExponents(), srvModel.currencyData.divisibility)}}
-                            {{targetCurrency}}
+                                    {{targetCurrency}}
                             <template v-if="perk.price.type == 1">or more</template>
                         </template>
-                        
+
+
                         <template v-else-if="perk.price.type === 2 && !perk.price.value">
                             Free
                         </template>
@@ -351,7 +357,7 @@
                 <p class="card-text overflow-hidden" v-if="perk.description" v-html="perk.description"></p>
 
                 <div class="input-group" style="max-width:500px;" v-if="expanded" :id="'perk-form'+ perk.id">
-                    <template v-if="perk.price.type !== 0 && !(perk.price.type === 2 && !perk.price.value)"> 
+                    <template v-if="perk.price.type !== 0 && !(perk.price.type === 2 && !perk.price.value)">
                         <input
                             
                             :disabled="!active"
