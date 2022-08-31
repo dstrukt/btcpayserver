@@ -72,8 +72,8 @@ div#crowdfund-body-description iframe {
 }
 
 /* HEADER: PROGRESS */
-div#crowdfund-progress-bar {
-    height: 2rem;
+#crowdfund-progress-bar {
+    height: 1.25rem;
 }
 
 #crowdfund-body-header + hr {

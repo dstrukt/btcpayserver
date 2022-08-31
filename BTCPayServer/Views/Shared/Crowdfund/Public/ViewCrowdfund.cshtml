@@ -41,11 +41,11 @@
             <img v-if="srvModel.mainImageUrl" src="@Model.MainImageUrl" :src="srvModel.mainImageUrl" alt="@Model.Title" :alt="srvModel.title" class="card-img-top" id="crowdfund-main-image" asp-append-version="true" />
         }
     <div class="d-flex flex-column justify-content-between py-4 px-3 text-center" id="crowdfund-header-container">
-        <h1 v-text="srvModel.title" class="py-3">@Model.Title</h1>
+        <h1 v-text="srvModel.title" class="pt-3 pb-2">@Model.Title</h1>
 
         @if (!string.IsNullOrEmpty(Model.Tagline))
         {
-            <span class="h5 fw-normal" v-if="srvModel.tagline" v-text="srvModel.tagline">@Model.Tagline</span>
+            <span class="h5 fw-normal py-2" v-if="srvModel.tagline" v-text="srvModel.tagline">@Model.Tagline</span>
         }
 
         @if (!Model.Started && Model.StartDate.HasValue)
@@ -66,31 +66,32 @@
                 currently active!
             </h6>
         }
+
         @if (Model.TargetAmount.HasValue)
         {
             <span v-if="srvModel.targetAmount" class="mt-3" id="crowdfund-header-target">
-                <h3 class="d-inline-block">
+                <h3>
                     <span class="px-3" v-text="`${targetAmount} ${targetCurrency}`">@Math.Round(Model.TargetAmount.GetValueOrDefault(0)) @Model.TargetCurrency</span>
                 </h3>
                 @if (Model.ResetEveryAmount > 0 && !Model.NeverReset)
                 {
                     <span v-if="srvModel.resetEvery !== 'Never'"
-                          class="h5 ms-2"
+                          class="h5 ms-1"
                           v-b-tooltip
                           :title="'Goal resets every ' + srvModel.resetEveryAmount + ' ' + srvModel.resetEvery + ((srvModel.resetEveryAmount>1)?'s': '')">
-                        Dynamic
+                        Recurring
                     </span>
                 }
                 @if (Model.EnforceTargetAmount)
                 {
-                    <span v-if="srvModel.enforceTargetAmount" class="h5 ms-2">
+                    <span v-if="srvModel.enforceTargetAmount" class="h5 ms-1">
                         Hardcap Goal
                         <span class="fa fa-question-circle" v-b-tooltip title="No contributions allowed after the goal has been reached"></span>
                     </span>
                 }
                 else
                 {
-                    <span v-if="!srvModel.enforceTargetAmount" class="h5 ms-2">
+                    <span v-if="!srvModel.enforceTargetAmount" class="h5 ms-1">
                         Softcap Goal
                         <span class="fa fa-question-circle" v-b-tooltip title="Contributions allowed even after goal is reached"></span>
                     </span>
@@ -130,10 +131,10 @@
                 }
 
                 <div class="container">
-                    <div class="row pt-2 pb-4 text-center crowdfund-stats">
-                        <div class="col-sm border-end p-3 text-center" id="crowdfund-body-raised-amount">
+                    <div class="row pt-2 pb-4 crowdfund-stats">
+                        <div class="col-sm py-4" id="crowdfund-body-raised-amount">
                             <h3 v-text="`${raisedAmount} ${targetCurrency}`">@Math.Round(Model.Info.CurrentAmount + Model.Info.CurrentPendingAmount, Model.CurrencyData.Divisibility) @Model.TargetCurrency</h3>
-                            <h5 class="text-muted fst-italic mb-0">Raised</h5>
+                            <h5 class="text-muted fw-normal mb-0">Raised</h5>
                             <b-tooltip target="crowdfund-body-raised-amount" v-if="paymentStats && paymentStats.length > 0" class="only-for-js">
                                 <ul class="p-0 text-uppercase">
                                     <li v-for="stat of paymentStats" class="list-unstyled">
@@ -143,21 +144,21 @@
                             </b-tooltip>
                         </div>
 
-                        <div class="col-sm border-end p-3 text-center" id="crowdfund-body-goal-raised">
+                        <div class="col-sm py-4" id="crowdfund-body-goal-raised">
                             <h3 v-text="`${percentageRaisedAmount}%`">@Math.Round(Model.Info.PendingProgressPercentage.GetValueOrDefault(0) + Model.Info.ProgressPercentage.GetValueOrDefault(0))%</h3>
-                            <h5 class="text-muted fst-italic mb-0">Of Goal</h5>
+                            <h5 class="text-muted fw-normal mb-0">Funded</h5>
                             <b-tooltip target="crowdfund-body-goal-raised" v-if="srvModel.resetEvery !== 'Never'" class="only-for-js">
                                 Goal resets every {{srvModel.resetEveryAmount}} {{srvModel.resetEvery}} {{srvModel.resetEveryAmount>1?'s': ''}}
                             </b-tooltip>
                         </div>
 
-                        <div class="col-sm border-end p-3 text-center" id="crowdfund-body-total-contributors">
+                        <div class="col-sm py-4" id="crowdfund-body-total-contributors">
                             <h3 v-text="new Intl.NumberFormat().format(srvModel.info.totalContributors)">@Model.Info.TotalContributors</h3>
-                            <h5 class="text-muted fst-italic mb-0">Contributors</h5>
+                            <h5 class="text-muted fw-normal mb-0">Contributors</h5>
                         </div>
                         @if (Model.StartDate.HasValue || Model.EndDate.HasValue)
                         {
-                            <div class="col-sm border-end p-3 text-center" id="crowdfund-body-campaign-dates">
+                            <div class="col-sm py-4" id="crowdfund-body-campaign-dates">
                                 @if (!Model.Started && Model.StartDate.HasValue)
                                 {
                                     <div v-if="startDiff">
@@ -377,7 +378,7 @@
                 </div>
             </div>
             <div class="card-footer d-flex justify-content-between" v-if="perk.sold || perk.inventory != null">
-                <span v-if="perk.inventory != null && perk.inventory > 0" class="text-center text-muted">{{new Intl.NumberFormat().format(perk.inventory)}} left</span>
+                <span v-if="perk.inventory != null && perk.inventory > 0" class="text-center text-muted">{{new Intl.NumberFormat().format(perk.inventory)}} Remaining</span>
                 <span v-if="perk.inventory != null && perk.inventory <= 0" class="text-center">Sold out</span>
                 <span v-if="perk.sold">{{new Intl.NumberFormat().format(perk.sold)}} Contributor{{perk.sold === 1 ? "": "s"}}</span>
                 <span v-if="perk.value">{{formatAmount(perk.value, srvModel.currencyData.divisibility)}} {{targetCurrency}} total</span>
