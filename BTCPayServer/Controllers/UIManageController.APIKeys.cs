@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
+using BTCPayServer.Abstractions.Services;
 using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Models;
@@ -41,7 +43,7 @@ namespace BTCPayServer.Controllers
             return View("Confirm", new ConfirmModel
             {
                 Title = "Delete API key",
-                Description = $"Any application using the API key <strong>{key.Label ?? key.Id}<strong> will immediately lose access.",
+                Description = $"Any application using the API key <strong>{Html.Encode(key.Label ?? key.Id)}<strong> will immediately lose access.",
                 Action = "Delete",
                 ActionName = nameof(DeleteAPIKeyPost)
             });
@@ -97,7 +99,7 @@ namespace BTCPayServer.Controllers
             permissions ??= Array.Empty<string>();
 
             var requestPermissions = Permission.ToPermissions(permissions).ToList();
-            
+
             if (redirect?.IsAbsoluteUri is false)
             {
                 redirect = null;
@@ -113,7 +115,7 @@ namespace BTCPayServer.Controllers
                 Permissions = string.Join(';', requestPermissions),
                 ApplicationIdentifier = applicationIdentifier
             };
-            
+
             var existingApiKey = await CheckForMatchingApiKey(requestPermissions, vm);
             if (existingApiKey != null)
             {
@@ -132,7 +134,7 @@ namespace BTCPayServer.Controllers
         {
             viewModel = await SetViewModelValues(viewModel);
             AdjustVMForAuthorization(viewModel);
-            
+
             var ar = HandleCommands(viewModel);
             if (ar != null)
             {
@@ -179,6 +181,7 @@ namespace BTCPayServer.Controllers
                         var permissions = key.GetBlob().Permissions;
                         var redirectVm = new PostRedirectViewModel()
                         {
+                            AllowExternal = true,
                             FormUrl = viewModel.RedirectUrl.AbsoluteUri,
                             FormParameters =
                             {
@@ -250,7 +253,7 @@ namespace BTCPayServer.Controllers
             {
                 return null;
             }
-                
+
             //check if there is an app identifier that matches and belongs to the current user
             var keys = await _apiKeyRepository.GetKeys(new APIKeyRepository.APIKeyQuery
             {
@@ -263,7 +266,7 @@ namespace BTCPayServer.Controllers
                 {
                     continue;
                 }
-                
+
                 var requestedGrouped = requestedPermissions.GroupBy(permission => permission.Policy);
                 var existingGrouped = Permission.ToPermissions(blob.Permissions).GroupBy(permission => permission.Policy);
 
@@ -280,8 +283,8 @@ namespace BTCPayServer.Controllers
 
                     if (Policies.IsStorePolicy(requested.Key))
                     {
-                        if ((vm.SelectiveStores && !existing.Any(p => p.Scope == vm.StoreId)) || 
-                            (!vm.SelectiveStores && existing.Any(p => !string.IsNullOrEmpty(p.Scope))) )
+                        if ((vm.SelectiveStores && !existing.Any(p => p.Scope == vm.StoreId)) ||
+                            (!vm.SelectiveStores && existing.Any(p => !string.IsNullOrEmpty(p.Scope))))
                         {
                             fail = true;
                             break;
@@ -305,9 +308,9 @@ namespace BTCPayServer.Controllers
         {
             var permissions = vm.Permissions?.Split(';') ?? Array.Empty<string>();
             var permissionsWithStoreIDs = new List<string>();
-            
+
             vm.NeedsStorePermission = vm.SelectiveStores && (permissions.Any(Policies.IsStorePolicy) || !vm.Strict);
-            
+
             // Go over each permission and associated store IDs and join them
             // so that permission for a specific store is parsed correctly
             foreach (var permission in permissions)
@@ -340,7 +343,7 @@ namespace BTCPayServer.Controllers
                     var commandParts = vm.Command?.Split(':', StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
                     var command = commandParts.Length > 1 ? commandParts[1] : null;
                     var isPerformingAnAction = command == "change-store-mode" || command == "add-store";
-                    
+
                     // Don't want to accidentally change mode for the user if they are explicitly performing some action
                     if (isPerformingAnAction)
                     {
@@ -349,7 +352,7 @@ namespace BTCPayServer.Controllers
 
                     // Set the value to true and adjust the other fields based on the policy type
                     permissionValue.Value = true;
-                    
+
                     if (vm.SelectiveStores && Policies.IsStorePolicy(permissionValue.Permission) &&
                         wanted.Any(permission => !string.IsNullOrEmpty(permission.Scope)))
                     {
@@ -503,49 +506,57 @@ namespace BTCPayServer.Controllers
             {
                 public static readonly Dictionary<string, (string Title, string Description)> PermissionDescriptions = new Dictionary<string, (string Title, string Description)>()
                 {
-                    {Policies.Unrestricted, ("Unrestricted access", "The app will have unrestricted access to your account.")},
-                    {Policies.CanViewUsers, ("View users", "The app will be able to see all users on this server.")},
-                    {Policies.CanCreateUser, ("Create new users", "The app will be able to create new users on this server.")},
-                    {Policies.CanDeleteUser, ("Delete user", "The app will be able to delete the user to whom it is assigned. Admin users can delete any user without this permission.")},
-                    {Policies.CanModifyStoreSettings, ("Modify your stores", "The app will be able to manage invoices on all your stores and modify their settings.")},
-                    {$"{Policies.CanModifyStoreSettings}:", ("Manage selected stores", "The app will be able to manage invoices on the selected stores and modify their settings.")},
-                    {Policies.CanViewCustodianAccounts, ("View exchange accounts linked to your stores", "The app will be able to see exchange accounts linked to your stores.")},
-                    {$"{Policies.CanViewCustodianAccounts}:", ("View exchange accounts linked to selected stores", "The app will be able to see exchange accounts linked to the selected stores.")},
-                    {Policies.CanManageCustodianAccounts, ("Manage exchange accounts linked to your stores", "The app will be able to modify exchange accounts linked to your stores.")},
-                    {$"{Policies.CanManageCustodianAccounts}:", ("Manage exchange accounts linked to selected stores", "The app will be able to modify exchange accounts linked to selected stores.")},
-                    {Policies.CanDepositToCustodianAccounts, ("Deposit funds to exchange accounts linked to your stores", "The app will be able to deposit funds to your exchange accounts.")},
-                    {$"{Policies.CanDepositToCustodianAccounts}:", ("Deposit funds to exchange accounts linked to selected stores", "The app will be able to deposit funds to selected store's exchange accounts.")},
-                    {Policies.CanWithdrawFromCustodianAccounts, ("Withdraw funds from exchange accounts to your store", "The app will be able to withdraw funds from your exchange accounts to your store.")},
-                    {$"{Policies.CanWithdrawFromCustodianAccounts}:", ("Withdraw funds from selected store's exchange accounts", "The app will be able to withdraw funds from your selected store's exchange accounts.")},
-                    {Policies.CanTradeCustodianAccount, ("Trade funds on your store's exchange accounts", "The app will be able to trade funds on your store's exchange accounts.")},
-                    {$"{Policies.CanTradeCustodianAccount}:", ("Trade funds on selected store's exchange accounts", "The app will be able to trade funds on selected store's exchange accounts.")},
-                    {Policies.CanModifyStoreWebhooks, ("Modify stores webhooks", "The app will modify the webhooks of all your stores.")},
-                    {$"{Policies.CanModifyStoreWebhooks}:", ("Modify selected stores' webhooks", "The app will modify the webhooks of the selected stores.")},
-                    {Policies.CanViewStoreSettings, ("View your stores", "The app will be able to view stores settings.")},
-                    {$"{Policies.CanViewStoreSettings}:", ("View your stores", "The app will be able to view the selected stores' settings.")},
-                    {Policies.CanModifyServerSettings, ("Manage your server", "The app will have total control on the server settings of your server.")},
-                    {Policies.CanViewProfile, ("View your profile", "The app will be able to view your user profile.")},
-                    {Policies.CanModifyProfile, ("Manage your profile", "The app will be able to view and modify your user profile.")},
-                    {Policies.CanManageNotificationsForUser, ("Manage your notifications", "The app will be able to view and modify your user notifications.")},
-                    {Policies.CanViewNotificationsForUser, ("View your notifications", "The app will be able to view your user notifications.")},
-                    {Policies.CanCreateInvoice, ("Create an invoice", "The app will be able to create new invoices.")},
-                    {$"{Policies.CanCreateInvoice}:", ("Create an invoice", "The app will be able to create new invoices on the selected stores.")},
-                    {Policies.CanViewInvoices, ("View invoices", "The app will be able to view invoices.")},
-                    {Policies.CanModifyInvoices, ("Modify invoices", "The app will be able to modify and view invoices.")},
-                    {$"{Policies.CanViewInvoices}:", ("View invoices", "The app will be able to view invoices on the selected stores.")},
-                    {$"{Policies.CanModifyInvoices}:", ("Modify invoices", "The app will be able to modify and view invoices on the selected stores.")},
-                    {Policies.CanModifyPaymentRequests, ("Modify your payment requests", "The app will be able to view, modify, delete and create new payment requests on all your stores.")},
-                    {$"{Policies.CanModifyPaymentRequests}:", ("Manage selected stores' payment requests", "The app will be able to view, modify, delete and create new payment requests on the selected stores.")},
-                    {Policies.CanViewPaymentRequests, ("View your payment requests", "The app will be able to view payment requests.")},
-                    {$"{Policies.CanViewPaymentRequests}:", ("View your payment requests", "The app will be able to view the selected stores' payment requests.")},
-                    {Policies.CanManagePullPayments, ("Manage your pull payments", "The app will be able to view, modify, delete and create pull payments on all your stores.")},
-                    {$"{Policies.CanManagePullPayments}:", ("Manage selected stores' pull payments", "The app will be able to view, modify, delete and create new pull payments on the selected stores.")},
-                    {Policies.CanUseInternalLightningNode, ("Use the internal lightning node", "The app will be able to  use the internal BTCPay Server lightning node to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
-                    {Policies.CanCreateLightningInvoiceInternalNode, ("Create invoices with internal lightning node", "The app will be able to use the internal BTCPay Server lightning node to create BOLT11 invoices.")},
-                    {Policies.CanUseLightningNodeInStore, ("Use the lightning nodes associated with your stores", "The app will be able to use the lightning nodes connected to all your stores to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
-                    {Policies.CanCreateLightningInvoiceInStore, ("Create invoices from the lightning nodes associated with your stores", "The app will be able to use the lightning nodes connected to all your stores to create BOLT11 invoices.")},
-                    {$"{Policies.CanUseLightningNodeInStore}:", ("Use the lightning nodes associated with your stores", "The app will be able to use the lightning nodes connected to the selected stores to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
-                    {$"{Policies.CanCreateLightningInvoiceInStore}:", ("Create invoices from the lightning nodes associated with your stores", "The app will be able to use the lightning nodes connected to the selected stores to create BOLT11 invoices.")},
+                    {Policies.Unrestricted, ("Unrestricted access", "Grants unrestricted access to your account.")},
+                    {Policies.CanViewUsers, ("View users", "Allows seeing all users on this server.")},
+                    {Policies.CanCreateUser, ("Create new users", "Allows creating new users on this server.")},
+                    {Policies.CanManageUsers, ("Manage users", "Allows creating/deleting API keys for users.")},
+                    {Policies.CanDeleteUser, ("Delete user", "Allows deleting the user to whom it is assigned. Admin users can delete any user without this permission.")},
+                    {Policies.CanModifyStoreSettings, ("Modify your stores", "Allows managing invoices on all your stores and modify their settings.")},
+                    {$"{Policies.CanModifyStoreSettings}:", ("Manage selected stores", "Allows managing invoices on the selected stores and modify their settings.")},
+                    {Policies.CanViewCustodianAccounts, ("View exchange accounts linked to your stores", "Allows seeing exchange accounts linked to your stores.")},
+                    {$"{Policies.CanViewCustodianAccounts}:", ("View exchange accounts linked to selected stores", "Allows seeing exchange accounts linked to the selected stores.")},
+                    {Policies.CanManageCustodianAccounts, ("Manage exchange accounts linked to your stores", "Allows modifying exchange accounts linked to your stores.")},
+                    {$"{Policies.CanManageCustodianAccounts}:", ("Manage exchange accounts linked to selected stores", "Allows modifying exchange accounts linked to selected stores.")},
+                    {Policies.CanDepositToCustodianAccounts, ("Deposit funds to exchange accounts linked to your stores", "Allows depositing funds to your exchange accounts.")},
+                    {$"{Policies.CanDepositToCustodianAccounts}:", ("Deposit funds to exchange accounts linked to selected stores", "Allows depositing funds to selected store's exchange accounts.")},
+                    {Policies.CanWithdrawFromCustodianAccounts, ("Withdraw funds from exchange accounts to your store", "Allows withdrawing funds from your exchange accounts to your store.")},
+                    {$"{Policies.CanWithdrawFromCustodianAccounts}:", ("Withdraw funds from selected store's exchange accounts", "Allows withdrawing funds from your selected store's exchange accounts.")},
+                    {Policies.CanTradeCustodianAccount, ("Trade funds on your store's exchange accounts", "Allows trading funds on your store's exchange accounts.")},
+                    {$"{Policies.CanTradeCustodianAccount}:", ("Trade funds on selected store's exchange accounts", "Allows trading funds on selected store's exchange accounts.")},
+                    {Policies.CanModifyStoreWebhooks, ("Modify stores webhooks", "Allows modifying the webhooks of all your stores.")},
+                    {$"{Policies.CanModifyStoreWebhooks}:", ("Modify selected stores' webhooks", "Allows modifying the webhooks of the selected stores.")},
+                    {Policies.CanViewStoreSettings, ("View your stores", "Allows viewing stores settings.")},
+                    {$"{Policies.CanViewStoreSettings}:", ("View your stores", "Allows viewing the selected stores' settings.")},
+                    {Policies.CanModifyServerSettings, ("Manage your server", "Grants total control on the server settings of your server.")},
+                    {Policies.CanViewProfile, ("View your profile", "Allows viewing your user profile.")},
+                    {Policies.CanModifyProfile, ("Manage your profile", "Allows viewing and modifying your user profile.")},
+                    {Policies.CanManageNotificationsForUser, ("Manage your notifications", "Allows viewing and modifying your user notifications.")},
+                    {Policies.CanViewNotificationsForUser, ("View your notifications", "Allows viewing your user notifications.")},
+                    {Policies.CanCreateInvoice, ("Create an invoice", "Allows creating new invoices.")},
+                    {$"{Policies.CanCreateInvoice}:", ("Create an invoice", "Allows creating new invoices on the selected stores.")},
+                    {Policies.CanViewInvoices, ("View invoices", "Allows viewing invoices.")},
+                    {Policies.CanModifyInvoices, ("Modify invoices", "Allows viewing and modifying invoices.")},
+                    {$"{Policies.CanViewInvoices}:", ("View invoices", "Allows viewing invoices on the selected stores.")},
+                    {$"{Policies.CanModifyInvoices}:", ("Modify invoices", "Allows viewing and modifying invoices on the selected stores.")},
+                    {Policies.CanModifyPaymentRequests, ("Modify your payment requests", "Allows viewing, modifying, deleting and creating new payment requests on all your stores.")},
+                    {$"{Policies.CanModifyPaymentRequests}:", ("Manage selected stores' payment requests", "Allows viewing, modifying, deleting and creating new payment requests on the selected stores.")},
+                    {Policies.CanViewPaymentRequests, ("View your payment requests", "Allows viewing payment requests.")},
+                    {$"{Policies.CanViewPaymentRequests}:", ("View your payment requests", "Allows viewing the selected stores' payment requests.")},
+                    {Policies.CanManagePullPayments, ("Manage your pull payments", "Allows viewing, modifying, deleting and creating pull payments on all your stores.")},
+                    {$"{Policies.CanManagePullPayments}:", ("Manage selected stores' pull payments", "Allows viewing, modifying, deleting and creating pull payments on the selected stores.")},
+                    {Policies.CanCreatePullPayments, ("Create pull payments", "Allows creating pull payments on all your stores.")},
+                    {$"{Policies.CanCreatePullPayments}:", ("Create pull payments in selected stores", "Allows creating pull payments on the selected stores.")},
+                    {Policies.CanCreateNonApprovedPullPayments, ("Create non-approved pull payments", "Allows creating pull payments without automatic approval on all your stores.")},
+                    {$"{Policies.CanCreateNonApprovedPullPayments}:", ("Create non-approved pull payments in selected stores", "Allows viewing, modifying, deleting and creating pull payments without automatic approval on the selected stores.")},
+                    {Policies.CanUseInternalLightningNode, ("Use the internal lightning node", "Allows using the internal BTCPay Server lightning node to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
+                    {Policies.CanViewLightningInvoiceInternalNode, ("View invoices from internal lightning node", "Allows using the internal BTCPay Server lightning node to view BOLT11 invoices.")},
+                    {Policies.CanCreateLightningInvoiceInternalNode, ("Create invoices with internal lightning node", "Allows using the internal BTCPay Server lightning node to create BOLT11 invoices.")},
+                    {Policies.CanUseLightningNodeInStore, ("Use the lightning nodes associated with your stores", "Allows using the lightning nodes connected to all your stores to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
+                    {Policies.CanViewLightningInvoiceInStore, ("View the lightning invoices associated with your stores", "Allows viewing the lightning invoices connected to all your stores.")},
+                    {Policies.CanCreateLightningInvoiceInStore, ("Create invoices from the lightning nodes associated with your stores", "Allows using the lightning nodes connected to all your stores to create BOLT11 invoices.")},
+                    {$"{Policies.CanUseLightningNodeInStore}:", ("Use the lightning nodes associated with your stores", "Allows using the lightning nodes connected to the selected stores to create BOLT11 invoices, connect to other nodes, open new channels and pay BOLT11 invoices.")},
+                    {$"{Policies.CanViewLightningInvoiceInStore}:", ("View the lightning invoices associated with your stores", "Allows viewing the lightning invoices connected to the selected stores.")},
+                    {$"{Policies.CanCreateLightningInvoiceInStore}:", ("Create invoices from the lightning nodes associated with your stores", "Allows using the lightning nodes connected to the selected stores to create BOLT11 invoices.")},
                 };
                 public string Title
                 {
@@ -566,7 +577,7 @@ namespace BTCPayServer.Controllers
                 public bool Forbidden { get; set; }
 
                 public ApiKeyStoreMode StoreMode { get; set; } = ApiKeyStoreMode.AllStores;
-                public List<string> SpecificStores { get; set; } = new ();
+                public List<string> SpecificStores { get; set; } = new();
             }
         }
 

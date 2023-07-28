@@ -20,22 +20,24 @@ namespace BTCPayServer.Controllers.Greenfield
     public class GreenfieldStoreUsersController : ControllerBase
     {
         private readonly StoreRepository _storeRepository;
+        private readonly UserManager<ApplicationUser> _userManager;
 
         public GreenfieldStoreUsersController(StoreRepository storeRepository, UserManager<ApplicationUser> userManager)
         {
             _storeRepository = storeRepository;
+            _userManager = userManager;
         }
         [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
         [HttpGet("~/api/v1/stores/{storeId}/users")]
         public IActionResult GetStoreUsers()
         {
-            
+
             var store = HttpContext.GetStoreData();
             return store == null ? StoreNotFound() : Ok(FromModel(store));
         }
         [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
-        [HttpDelete("~/api/v1/stores/{storeId}/users/{userId}")]
-        public async Task<IActionResult> RemoveStoreUser(string storeId, string userId)
+        [HttpDelete("~/api/v1/stores/{storeId}/users/{idOrEmail}")]
+        public async Task<IActionResult> RemoveStoreUser(string storeId, string idOrEmail)
         {
             var store = HttpContext.GetStoreData();
             if (store == null)
@@ -43,12 +45,12 @@ namespace BTCPayServer.Controllers.Greenfield
                 return StoreNotFound();
             }
 
-            if (await _storeRepository.RemoveStoreUser(storeId, userId))
+            var userId = await _userManager.FindByIdOrEmail(idOrEmail);
+            if (userId != null && await _storeRepository.RemoveStoreUser(storeId, idOrEmail))
             {
-                
                 return Ok();
             }
-            
+
             return this.CreateAPIError(409, "store-user-role-orphaned", "Removing this user would result in the store having no owner.");
         }
 
@@ -61,8 +63,19 @@ namespace BTCPayServer.Controllers.Greenfield
             {
                 return StoreNotFound();
             }
-            //we do not need to validate the role string as any value other than `StoreRoles.Owner` is currently treated like a guest
-            if (await _storeRepository.AddStoreUser(storeId, request.UserId, request.Role))
+            StoreRoleId roleId = null;
+
+            if (request.Role is not null)
+            {
+                roleId = await _storeRepository.ResolveStoreRoleId(storeId, request.Role);
+                if (roleId is null)
+                    ModelState.AddModelError(nameof(request.Role), "The role id provided does not exist");
+            }
+            
+            if (!ModelState.IsValid)
+                return this.CreateValidationError(ModelState);
+
+            if (await _storeRepository.AddStoreUser(storeId, request.UserId, roleId))
             {
                 return Ok();
             }
@@ -72,7 +85,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
         private IEnumerable<StoreUserData> FromModel(Data.StoreData data)
         {
-            return data.UserStores.Select(store => new StoreUserData() { UserId = store.ApplicationUserId, Role = store.Role});
+            return data.UserStores.Select(store => new StoreUserData() { UserId = store.ApplicationUserId, Role = store.StoreRoleId });
         }
         private IActionResult StoreNotFound()
         {

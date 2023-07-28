@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace BTCPayServer.Data
 {
@@ -16,17 +17,22 @@ namespace BTCPayServer.Data
 
         [Required]
         public DateTimeOffset Timestamp { get; set; }
+        public string Blob { get; set; }
+        public bool Pruned { get; set; }
 
-        [Required]
-        public byte[] Blob { get; set; }
-
-
-        internal static void OnModelCreating(ModelBuilder builder)
+        internal static void OnModelCreating(ModelBuilder builder, DatabaseFacade databaseFacade)
         {
             builder.Entity<WebhookDeliveryData>()
                 .HasOne(o => o.Webhook)
                 .WithMany(a => a.Deliveries).OnDelete(DeleteBehavior.Cascade);
             builder.Entity<WebhookDeliveryData>().HasIndex(o => o.WebhookId);
+            builder.Entity<WebhookDeliveryData>().HasIndex(o => o.Timestamp);
+            if (databaseFacade.IsNpgsql())
+            {
+                builder.Entity<WebhookDeliveryData>()
+                    .Property(o => o.Blob)
+                    .HasColumnType("JSONB");
+            }
         }
     }
 }

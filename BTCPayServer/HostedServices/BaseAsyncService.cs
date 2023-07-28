@@ -23,7 +23,7 @@ namespace BTCPayServer.HostedServices
 
         protected BaseAsyncService(ILogger logger)
         {
-            Logs = new Logs() { PayServer = logger, Events = logger, Configuration = logger};
+            Logs = new Logs() { PayServer = logger, Events = logger, Configuration = logger };
         }
 
         public virtual Task StartAsync(CancellationToken cancellationToken)
@@ -32,7 +32,7 @@ namespace BTCPayServer.HostedServices
             foreach (var t in _Tasks)
                 t.ContinueWith(t =>
                 {
-                    if (t.IsFaulted)
+                    if (t.IsFaulted && !CancellationToken.IsCancellationRequested)
                         Logs.PayServer.LogWarning(t.Exception, $"Unhanded exception in {this.GetType().Name}");
                 }, TaskScheduler.Default);
             return Task.CompletedTask;
@@ -40,7 +40,7 @@ namespace BTCPayServer.HostedServices
 
         internal abstract Task[] InitializeTasks();
 
-        protected CancellationToken Cancellation
+        protected CancellationToken CancellationToken
         {
             get { return _Cts.Token; }
         }
@@ -68,8 +68,6 @@ namespace BTCPayServer.HostedServices
                 }
             }
         }
-
-        public CancellationToken CancellationToken => _Cts.Token;
 
         public virtual async Task StopAsync(CancellationToken cancellationToken)
         {

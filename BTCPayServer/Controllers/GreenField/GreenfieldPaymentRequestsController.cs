@@ -124,7 +124,8 @@ namespace BTCPayServer.Controllers.Greenfield
 
             try
             {
-                var invoice = await _invoiceController.CreatePaymentRequestInvoice(pr, amount, this.StoreData, Request, cancellationToken);
+                var prData = await _paymentRequestRepository.FindPaymentRequest(pr.Id, null);
+                var invoice = await _invoiceController.CreatePaymentRequestInvoice(prData, amount, pr.AmountDue, this.StoreData, Request, cancellationToken);
                 return Ok(GreenfieldInvoiceController.ToModel(invoice, _linkGenerator, Request));
             }
             catch (BitpayHttpException e)
@@ -254,7 +255,9 @@ namespace BTCPayServer.Controllers.Greenfield
                 Email = blob.Email,
                 AllowCustomPaymentAmounts = blob.AllowCustomPaymentAmounts,
                 EmbeddedCSS = blob.EmbeddedCSS,
-                CustomCSSLink = blob.CustomCSSLink
+                CustomCSSLink = blob.CustomCSSLink,
+                FormResponse = blob.FormResponse,
+                FormId = blob.FormId
             };
         }
 

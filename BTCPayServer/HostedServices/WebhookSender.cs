@@ -13,6 +13,7 @@ using BTCPayServer.Controllers.Greenfield;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
 using BTCPayServer.Logging;
+using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,7 @@ namespace BTCPayServer.HostedServices
     {
         readonly Encoding UTF8 = new UTF8Encoding(false);
         public readonly static JsonSerializerSettings DefaultSerializerSettings;
+
         static WebhookSender()
         {
             DefaultSerializerSettings = WebhookEvent.DefaultSerializerSettings;
@@ -38,6 +40,7 @@ namespace BTCPayServer.HostedServices
         public const string OnionNamedClient = "greenfield-webhook.onion";
         public const string ClearnetNamedClient = "greenfield-webhook.clearnet";
         public const string LoopbackNamedClient = "greenfield-webhook.loopback";
+        public static string[] AllClients = new[] { OnionNamedClient, ClearnetNamedClient, LoopbackNamedClient };
         private HttpClient GetClient(Uri uri)
         {
             return HttpClientFactory.CreateClient(uri.IsOnion() ? OnionNamedClient : uri.IsLoopback ? LoopbackNamedClient : ClearnetNamedClient);
@@ -102,6 +105,8 @@ namespace BTCPayServer.HostedServices
             var newDeliveryBlob = new WebhookDeliveryBlob();
             newDeliveryBlob.Request = oldDeliveryBlob.Request;
             var webhookEvent = newDeliveryBlob.ReadRequestAs<WebhookEvent>();
+            if (webhookEvent.IsPruned())
+                return null;
             webhookEvent.DeliveryId = newDelivery.Id;
             webhookEvent.WebhookId = webhookDelivery.Webhook.Id;
             // if we redelivered a redelivery, we still want the initial delivery here
@@ -318,7 +323,7 @@ namespace BTCPayServer.HostedServices
             var sig = Encoders.Hex.EncodeData(hmac.ComputeHash(bytes));
             content.Headers.Add("BTCPay-Sig", $"sha256={sig}");
             request.Content = content;
-            var deliveryBlob = ctx.Delivery.Blob is null ? new WebhookDeliveryBlob() : ctx.Delivery.GetBlob();
+            var deliveryBlob = ctx.Delivery.GetBlob() ?? new WebhookDeliveryBlob();
             deliveryBlob.Request = bytes;
             try
             {

@@ -17,18 +17,18 @@ using BTCPayServer.Models.WalletViewModels;
 using BTCPayServer.Payments.PayJoin;
 using BTCPayServer.Payments.PayJoin.Sender;
 using BTCPayServer.Services;
-using BTCPayServer.Services.Wallets;
 using BTCPayServer.Services.Labels;
+using BTCPayServer.Services.Wallets;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using NBitcoin;
 using NBitcoin.Payment;
 using NBXplorer;
 using NBXplorer.Models;
 using Newtonsoft.Json.Linq;
 using StoreData = BTCPayServer.Data.StoreData;
-using Microsoft.EntityFrameworkCore;
 
 namespace BTCPayServer.Controllers.Greenfield
 {
@@ -145,12 +145,14 @@ namespace BTCPayServer.Controllers.Greenfield
             {
                 bip21.QueryParams.Add(PayjoinClient.BIP21EndpointKey,
                     Request.GetAbsoluteUri(Url.Action(nameof(PayJoinEndpointController.Submit), "PayJoinEndpoint",
-                        new {cryptoCode})));
+                        new { cryptoCode })));
             }
 
             return Ok(new OnChainWalletAddressData()
             {
-                Address = kpi.Address?.ToString(), PaymentLink = bip21.ToString(), KeyPath = kpi.KeyPath
+                Address = kpi.Address?.ToString(),
+                PaymentLink = bip21.ToString(),
+                KeyPath = kpi.KeyPath
             });
         }
 
@@ -180,7 +182,8 @@ namespace BTCPayServer.Controllers.Greenfield
             [FromQuery] TransactionStatus[]? statusFilter = null,
             [FromQuery] string? labelFilter = null,
             [FromQuery] int skip = 0,
-            [FromQuery] int limit = int.MaxValue
+            [FromQuery] int limit = int.MaxValue,
+            CancellationToken cancellationToken = default
         )
         {
             if (IsInvalidWalletRequest(cryptoCode, out var network,
@@ -189,13 +192,13 @@ namespace BTCPayServer.Controllers.Greenfield
 
             var wallet = _btcPayWalletProvider.GetWallet(network);
             var walletId = new WalletId(storeId, cryptoCode);
-            var walletTransactionsInfoAsync = await _walletRepository.GetWalletTransactionsInfo(walletId, (string[] ) null);
+            var walletTransactionsInfoAsync = await _walletRepository.GetWalletTransactionsInfo(walletId, (string[]?)null);
 
             var preFiltering = true;
             if (statusFilter?.Any() is true || !string.IsNullOrWhiteSpace(labelFilter))
                 preFiltering = false;
             var txs = await wallet.FetchTransactionHistory(derivationScheme.AccountDerivation, preFiltering ? skip : 0,
-                preFiltering ? limit : int.MaxValue);
+                preFiltering ? limit : int.MaxValue, cancellationToken: cancellationToken);
             if (!preFiltering)
             {
                 var filteredList = new List<TransactionHistoryLine>(txs.Count);
@@ -246,7 +249,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
             var walletId = new WalletId(storeId, cryptoCode);
             var walletTransactionsInfoAsync =
-                (await _walletRepository.GetWalletTransactionsInfo(walletId, new[] {transactionId})).Values
+                (await _walletRepository.GetWalletTransactionsInfo(walletId, new[] { transactionId })).Values
                 .FirstOrDefault();
 
             return Ok(ToModel(walletTransactionsInfoAsync, tx, wallet));
@@ -288,7 +291,7 @@ namespace BTCPayServer.Controllers.Greenfield
             }
 
             var walletTransactionsInfo =
-                (await _walletRepository.GetWalletTransactionsInfo(walletId, new[] {transactionId}))
+                (await _walletRepository.GetWalletTransactionsInfo(walletId, new[] { transactionId }))
                 .Values
                 .FirstOrDefault();
 
@@ -307,7 +310,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
             var walletId = new WalletId(storeId, cryptoCode);
             var utxos = await wallet.GetUnspentCoins(derivationScheme.AccountDerivation);
-            var walletTransactionsInfoAsync = await _walletRepository.GetWalletTransactionsInfo(walletId, 
+            var walletTransactionsInfoAsync = await _walletRepository.GetWalletTransactionsInfo(walletId,
                 utxos.SelectMany(GetWalletObjectsQuery.Get).Distinct().ToArray());
             return Ok(utxos.Select(coin =>
                 {
@@ -583,12 +586,13 @@ namespace BTCPayServer.Controllers.Greenfield
                 {
                     await _delayedTransactionBroadcaster.Schedule(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2.0),
                         transaction, network);
+                    _payjoinClient.MinimumFeeRate = minRelayFee;
                     var payjoinPSBT = await _payjoinClient.RequestPayjoin(
                         new BitcoinUrlBuilder(signingContext.PayJoinBIP21, network.NBitcoinNetwork),
                         new PayjoinWallet(derivationScheme),
                         psbt.PSBT, CancellationToken.None);
                     psbt.PSBT.Settings.SigningOptions =
-                        new SigningOptions() {EnforceLowR = !(signingContext?.EnforceLowR is false)};
+                        new SigningOptions() { EnforceLowR = !(signingContext?.EnforceLowR is false) };
                     payjoinPSBT = psbt.PSBT.SignAll(derivationScheme.AccountDerivation, accountKey, rootedKeyPath);
                     payjoinPSBT.Finalize();
                     var payjoinTransaction = payjoinPSBT.ExtractTransaction();

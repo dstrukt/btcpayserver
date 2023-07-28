@@ -36,53 +36,73 @@ Vue.directive('collapsible', {
     }
 });
 
-const fallbackLanguage = 'en';
-const startingLanguage = computeStartingLanguage();
-const STATUS_PAID = ['complete', 'confirmed', 'paid'];
-const STATUS_UNPAYABLE =  ['expired', 'invalid'];
+// These are the legacy states, see InvoiceEntity
+const STATUS_PAYABLE = ['new'];
+const STATUS_PAID = ['paid'];
+const STATUS_SETTLED = ['complete', 'confirmed'];
+const STATUS_INVALID =  ['expired', 'invalid'];
+const urlParams = new URLSearchParams(window.location.search);
 
 function computeStartingLanguage() {
+    const lang = urlParams.get('lang')
+    if (lang && isLanguageAvailable(lang)) return lang;
     const { defaultLang } = initialSrvModel;
     return isLanguageAvailable(defaultLang) ? defaultLang : fallbackLanguage;
 }
 
 function isLanguageAvailable(languageCode) {
-    return availableLanguages.indexOf(languageCode) >= 0;
+    return availableLanguages.includes(languageCode);
+}
+
+function updateLanguageSelect() {
+    // calculate and set width, as we want it center aligned
+    const $languageSelect = document.getElementById('DefaultLang');
+    const element = document.createElement('div');
+    element.innerText = $languageSelect.querySelector('option:checked').text;
+    $languageSelect.parentElement.appendChild(element);
+    const width = element.offsetWidth;
+    $languageSelect.parentElement.removeChild(element);
+    if (width && width > 0) {
+        $languageSelect.style.setProperty('--text-width', `${width}px`);
+    } else { // in case of modal this might not be rendered properly yet
+        window.requestAnimationFrame(updateLanguageSelect);
+    }
+}
+
+function updateLanguage(lang) {
+    if (isLanguageAvailable(lang)) {
+        i18next.changeLanguage(lang);
+        urlParams.set('lang', lang);
+        window.history.replaceState({}, '', `${location.pathname}?${urlParams}`);
+        updateLanguageSelect();
+    }
 }
 
 Vue.use(VueI18next);
 
+const fallbackLanguage = 'en';
+const startingLanguage = computeStartingLanguage();
 const i18n = new VueI18next(i18next);
 const eventBus = new Vue();
 
-const PaymentDetails = Vue.component('payment-details', {
-    el: '#payment-details',
+const PaymentDetails = {
+    template: '#payment-details',
     props: {
         srvModel: Object,
-        isActive: Boolean
-    },
-    computed: {
-        orderAmount () {
-            return parseFloat(this.srvModel.orderAmount);
-        },
-        btcDue () {
-            return parseFloat(this.srvModel.btcDue);
-        },
-        btcPaid () {
-            return parseFloat(this.srvModel.btcPaid);
-        },
-        showRecommendedFee () {
-            return this.isActive && this.srvModel.showRecommendedFee && this.srvModel.feeRate;
-        },
+        isActive: Boolean,
+        showRecommendedFee: Boolean,
+        orderAmount: Number,
+        btcPaid: Number,
+        btcDue: Number
     }
-});
+}
 
 function initApp() {
     return new Vue({
         i18n,
         el: '#Checkout-v2',
         components: {
-            PaymentDetails
+            'payment-details': PaymentDetails,
         },
         data () {
             const srvModel = initialSrvModel;
@@ -90,45 +110,54 @@ function initApp() {
                 srvModel,
                 displayPaymentDetails: false,
                 remainingSeconds: srvModel.expirationSeconds,
-                expirationPercentage: 0,
                 emailAddressInput: "",
                 emailAddressInputDirty: false,
                 emailAddressInputInvalid: false,
                 paymentMethodId: null,
                 endData: null,
-                isModal: srvModel.isModal
+                isModal: srvModel.isModal,
+                pollTimeoutID: null,
+                paymentSound: null,
+                nfcReadSound: null,
+                errorSound: null,
             }
         },
         computed: {
-            isUnpayable () {
-                return STATUS_UNPAYABLE.includes(this.srvModel.status);
+            isInvalid () {
+                return STATUS_INVALID.includes(this.srvModel.status);
             },
-            isPaid () {
+            isSettled () {
+                return STATUS_SETTLED.includes(this.srvModel.status);
+            },
+            isProcessing () {
                 return STATUS_PAID.includes(this.srvModel.status);
             },
             isActive () {
-                return !this.isUnpayable && !this.isPaid;
+                return STATUS_PAYABLE.includes(this.srvModel.status);
+            },
+            isPaidPartial () {
+                return this.btcPaid > 0 && this.btcDue > 0;
             },
             showInfo () {
                 return this.showTimer || this.showPaymentDueInfo;
             },
             showTimer () {
-                return this.isActive && (this.expirationPercentage >= 75 || this.minutesLeft < 5);
+                return this.isActive && this.remainingSeconds < this.srvModel.displayExpirationTimer;
             },
             showPaymentDueInfo () {
-                return this.btcPaid > 0 && this.btcDue > 0;
+                return this.isPaidPartial;
             },
             showRecommendedFee () {
-                return this.isActive() && this.srvModel.showRecommendedFee && this.srvModel.feeRate;
+                return this.isActive && this.srvModel.showRecommendedFee && this.srvModel.feeRate;
             },
             orderAmount () {
-                return parseFloat(this.srvModel.orderAmount);
+                return this.asNumber(this.srvModel.orderAmount);
             },
             btcDue () {
-                return parseFloat(this.srvModel.btcDue);
+                return this.asNumber(this.srvModel.btcDue);
             },
             btcPaid () {
-                return parseFloat(this.srvModel.btcPaid);
+                return this.asNumber(this.srvModel.btcPaid);
             },
             pmId () {
                 return this.paymentMethodId || this.srvModel.paymentMethodId;
@@ -159,14 +188,63 @@ function initApp() {
             },
             isPluginPaymentMethod () {
                 return !this.paymentMethodIds.includes(this.pmId);
+            },
+            realCryptoCode () {
+                return this.srvModel.cryptoCode.toLowerCase() === 'sats' ? 'BTC' : this.srvModel.cryptoCode;
+            }
+        },
+        watch: {
+            isProcessing: function (newValue, oldValue) {
+                if (newValue === true && oldValue === false) {
+                    // poll from here on
+                    this.listenForConfirmations();
+                    // celebration!
+                    const self = this;
+                    Vue.nextTick(function () {
+                        self.celebratePayment(5000);
+                    });
+                }
+            },
+            isSettled: function (newValue, oldValue) {
+                if (newValue === true && oldValue === false) {
+                    const duration = 5000;
+                    const self = this;
+                    // stop polling
+                    if (this.pollTimeoutID) {
+                        clearTimeout(this.pollTimeoutID);
+                    }
+                    // celebration!
+                    Vue.nextTick(function () {
+                        self.celebratePayment(duration);
+                    });
+                    // automatic redirect or close
+                    if (self.srvModel.redirectAutomatically && self.storeLink) {
+                        setTimeout(function () {
+                            if (self.isModal && window.top.location === self.storeLink) {
+                                self.close();
+                            } else {
+                                window.top.location = self.storeLink;
+                            }
+                        }, duration);
+                    }
+                }
             }
         },
         mounted () {
             this.updateData(this.srvModel);
             this.updateTimer();
-            if (this.isActive) {
+            if (this.isActive || this.isProcessing) {
                 this.listenIn();
             }
+            if (this.isProcessing) {
+                this.listenForConfirmations();
+            }
+            if (this.srvModel.paymentSoundUrl) {
+                this.prepareSound(this.srvModel.paymentSoundUrl).then(sound => this.paymentSound = sound);
+                this.prepareSound(this.srvModel.nfcReadSoundUrl).then(sound => this.nfcReadSound = sound);
+                this.prepareSound(this.srvModel.errorSoundUrl).then(sound => this.errorSound = sound);
+            }
+            updateLanguageSelect();
             window.parent.postMessage('loaded', '*');
         },
         methods: {
@@ -177,10 +255,10 @@ function initApp() {
                 }
             },
             changeLanguage (e) {
-                const lang = e.target.value;
-                if (isLanguageAvailable(lang)) {
-                    i18next.changeLanguage(lang);
-                }
+                updateLanguage(e.target.value);
+            },
+            asNumber (val) {
+                return parseFloat(val.replace(/\s/g, '')); // e.g. sats are formatted with spaces: 1 000 000
             },
             padTime (val) {
                 return val.toString().padStart(2, '0');
@@ -190,12 +268,12 @@ function initApp() {
             },
             updateTimer () {
                 this.remainingSeconds = Math.floor((this.endDate.getTime() - new Date().getTime())/1000);
-                this.expirationPercentage = 100 - Math.floor((this.remainingSeconds / this.srvModel.maxTimeSeconds) * 100);
                 if (this.isActive) {
                     setTimeout(this.updateTimer, 500);
                 }
             },
             listenIn () {
+                const self = this;
                 let socket = null;
                 const updateFn = this.fetchData;
                 const supportsWebSockets = 'WebSocket' in window && window.WebSocket.CLOSING === 2;
@@ -210,19 +288,35 @@ function initApp() {
                         socket.onerror = function (e) {
                             console.error('Error while connecting to websocket for invoice notifications (callback):', e);
                         };
+                        socket.onclose = function () {
+                            self.pollUpdates(2000, socket);
+                        };
                     }
                     catch (e) {
                         console.error('Error while connecting to websocket for invoice notifications', e);
                     }
                 }
                 // fallback in case there is no websocket support
-                (function watcher() {
-                    setTimeout(async function () {
-                        if (socket === null || socket.readyState !== 1) {
+                if (!socket || socket.readyState !== 1) {
+                    this.pollUpdates(2000, socket)
+                }
+            },
+            listenForConfirmations () {
+                this.pollUpdates(30000);
+            },
+            pollUpdates (interval, socket) {
+                const self = this;
+                const updateFn = this.fetchData;
+                if (self.pollTimeoutID) {
+                    clearTimeout(self.pollTimeoutID);
+                }
+                (function pollFn() {
+                    self.pollTimeoutID = setTimeout(async function () {
+                        if (!socket || socket.readyState !== 1) {
                             await updateFn();
+                            pollFn();
                         }
-                        watcher();
-                    }, 2000);
+                    }, interval);
                 })();
             },
             async fetchData () {
@@ -241,10 +335,6 @@ function initApp() {
                     const { status } = data;
                     window.parent.postMessage({ invoiceId, status }, '*');
                 }
-    
-                // displaying satoshis for lightning payments
-                data.cryptoCodeSrv = data.cryptoCode;
-    
                 const newEnd = new Date();
                 newEnd.setSeconds(newEnd.getSeconds() + data.expirationSeconds);
                 this.endDate = newEnd;
@@ -252,20 +342,47 @@ function initApp() {
                 // updating ui
                 this.srvModel = data;
                 eventBus.$emit('data-fetched', this.srvModel);
-    
-                const self = this;
-                if (this.isPaid && data.redirectAutomatically && data.merchantRefLink) {
-                    setTimeout(function () {
-                        if (self.isModal && window.top.location === data.merchantRefLink){
-                            self.close();
-                        } else {
-                            window.top.location = data.merchantRefLink;
-                        }
-                    }, 2000);
-                }
             },
             replaceNewlines (value) {
                 return value ? value.replace(/\n/ig, '<br>') : '';
+            },
+            playSound (soundName) {
+                // sound
+                const sound = this[soundName + 'Sound'];
+                if (sound && !sound.playing) {
+                    const { audioContext, audioBuffer } = sound;
+                    const source = audioContext.createBufferSource();
+                    source.onended = () => { sound.playing = false; };
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.start();
+                    sound.playing = true;
+                }
+            },
+            async celebratePayment (duration) {
+                // sound
+                this.playSound('payment')
+                // confetti
+                const $confettiEl = document.getElementById('confetti')
+                if (window.confetti && $confettiEl && !$confettiEl.dataset.running) {
+                    $confettiEl.dataset.running = true;
+                    await window.confetti($confettiEl, {
+                        duration,
+                        spread: 90,
+                        stagger: 5,
+                        elementCount: 121,
+                        colors: ["#a864fd", "#29cdff", "#78ff44", "#ff718d", "#fdff6a"]
+                    });
+                    delete $confettiEl.dataset.running;
+                }
+            },
+            async prepareSound (url) {
+                const audioContext = new AudioContext();
+                const response = await fetch(url)
+                if (!response.ok) return console.error(`Could not load payment sound, HTTP error ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                return { audioContext, audioBuffer, playing: false };
             }
         }
     });

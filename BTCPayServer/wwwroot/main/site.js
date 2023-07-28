@@ -24,9 +24,136 @@ const switchTimeFormat = event => {
     event.target.dataset.mode = mode;
 };
 
+async function initLabelManager (elementId) {
+    const element = document.getElementById(elementId);
+
+    const labelStyle = data =>
+        data && data.color && data.textColor
+            ? `--label-bg:${data.color};--label-fg:${data.textColor}`
+            : '--label-bg:var(--btcpay-neutral-300);--label-fg:var(--btcpay-neutral-800)'
+
+    if (element) {
+        const { fetchUrl, updateUrl, walletId, walletObjectType, walletObjectId, labels,selectElement } = element.dataset;
+        const commonCallId = `walletLabels-${walletId}`;
+        if (!window[commonCallId]) {
+            window[commonCallId] = fetch(fetchUrl, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+            }).then(res => res.json());
+        }
+        const selectElementI = document.getElementById(selectElement);
+        const items = element.value.split(',').filter(x => !!x);
+        const options = await window[commonCallId].then(labels => {
+            const newItems = items.filter(item => !labels.find(label => label.label === item));
+            labels = [...labels, ...newItems.map(item => ({ label: item }))];
+            return labels;
+        });
+        const richInfo = labels ? JSON.parse(labels) : {};
+        const config = {
+            options,
+            items,
+            valueField: "label",
+            labelField: "label",
+            searchField: "label",
+            create: true,
+            persist: true,
+            allowEmptyOption: false,
+            closeAfterSelect: false,
+            render: {
+                dropdown (){
+                    return '<div class="dropdown-menu"></div>';
+                },
+                option_create: function(data, escape) {
+                    return `<div class="transaction-label create" style="${labelStyle(null)}">Add <strong>${escape(data.input)}</strong>&hellip;</div>`;
+                },
+                option (data, escape) {
+                    return `<div class="transaction-label" style="${labelStyle(data)}"><span>${escape(data.label)}</span></div>`;
+                },
+                item (data, escape) {
+                    const info = richInfo && richInfo[data.label];
+                    const additionalInfo = info
+                        ? `<a href="${info.link}" target="_blank" rel="noreferrer noopener" class="transaction-label-info transaction-details-icon" title="${info.tooltip}" data-bs-html="true"
+                              data-bs-toggle="tooltip" data-bs-custom-class="transaction-label-tooltip"><svg role="img" class="icon icon-info"><use href="/img/icon-sprite.svg#info"></use></svg></a>`
+                        : '';
+                    const inner = `<span>${escape(data.label)}</span>${additionalInfo}`;
+                    return `<div class="transaction-label" style="${labelStyle(data)}">${inner}</div>`;
+                }
+            },
+            onItemAdd (val) {
+                window[commonCallId] = window[commonCallId].then(labels => {
+                    return [...labels, { label: val }]
+                });
+
+                document.dispatchEvent(new CustomEvent(`${commonCallId}-option-added`, {
+                    detail: val
+                }));
+            },
+            async onChange (values) {
+                if(selectElementI){
+                    while (selectElementI.options.length > 0) {
+                        selectElementI.remove(0);
+                    }
+                    select.items.forEach((item) => {
+                        selectElementI.add(new Option(item, item, true, true));
+                    })
+                }
+                if(!updateUrl)
+                    return;
+                select.lock();
+                try {
+                    const response = await fetch(updateUrl, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            id: walletObjectId,
+                            type: walletObjectType,
+                            labels: select.items
+                        })
+                    });
+                    if (!response.ok) {
+                        throw new Error('Network response was not OK');
+                    }
+                } catch (error) {
+                    console.error('There has been a problem with your fetch operation:', error);
+                } finally {
+                    select.unlock();
+                }
+            }
+        };
+        const select = new TomSelect(element, config);
+
+        element.parentElement.querySelectorAll('.ts-control .transaction-label a').forEach(lbl => {
+            lbl.addEventListener('click', e => {
+                e.stopPropagation()
+            })
+        })
+
+        document.addEventListener(`${commonCallId}-option-added`, evt => {
+            if (!(evt.detail in select.options)) {
+                select.addOption({
+                    label: evt.detail
+                })
+            }
+        })
+    }
+}
+
+const initLabelManagers = () => {
+    // select only elements which haven't been initialized before, those without data-localized
+    document.querySelectorAll("input.label-manager:not(.tomselected)").forEach($el => {
+        initLabelManager($el.id)
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // sticky header
-    const stickyHeader = document.querySelector('.sticky-header-setup + .sticky-header');
+    const stickyHeader = document.querySelector('#mainContent > section > .sticky-header');
     if (stickyHeader) {
         document.documentElement.style.scrollPaddingTop = `calc(${stickyHeader.offsetHeight}px + var(--btcpay-space-m))`;
     }
@@ -37,6 +164,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // localize all elements that have localizeDate class
     formatDateTimes();
+
+    initLabelManagers();
     
     function updateTimeAgo(){
         var timeagoElements = $("[data-timeago-unixms]");
@@ -86,7 +215,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 row: 10
             },
             codeviewFilter: true,
-            codeviewFilterRegex: new RegExp($.summernote.options.codeviewFilterRegex.source + '|<.*?( on\\w+?=.*?)>', 'gi')
+            codeviewFilterRegex: new RegExp($.summernote.options.codeviewFilterRegex.source + '|<.*?( on\\w+?=.*?)>', 'gi'),
+            codeviewIframeWhitelistSrc: ['twitter.com', 'syndication.twitter.com']
         });
     }
 
@@ -149,6 +279,21 @@ document.addEventListener("DOMContentLoaded", () => {
         setColorMode(mode)
         e.target.closest('.btcpay-theme-switch').blur()
     })
+
+    // Sensitive Info
+    const SENSITIVE_INFO_STORE_KEY = 'btcpay-hide-sensitive-info';
+    const SENSITIVE_INFO_DATA_ATTR = 'data-hide-sensitive-info';
+    delegate('change', '#HideSensitiveInfo', e => {
+        e.preventDefault()
+        const isActive = window.localStorage.getItem(SENSITIVE_INFO_STORE_KEY) === 'true';
+        if (isActive) {
+            window.localStorage.removeItem(SENSITIVE_INFO_STORE_KEY);
+            document.documentElement.removeAttribute(SENSITIVE_INFO_DATA_ATTR);
+        } else {
+            window.localStorage.setItem(SENSITIVE_INFO_STORE_KEY, 'true');
+            document.documentElement.setAttribute(SENSITIVE_INFO_DATA_ATTR, 'true');
+        }
+    });
     
     // Currency Selection: Remove the current input value once the element is focused, so that the user gets to
     // see the available options. If no selection or change is made, reset it to the previous value on blur.

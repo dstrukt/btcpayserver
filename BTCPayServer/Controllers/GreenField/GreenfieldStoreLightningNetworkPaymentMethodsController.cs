@@ -18,6 +18,7 @@ using BTCPayServer.Security;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using StoreData = BTCPayServer.Data.StoreData;
@@ -26,6 +27,7 @@ namespace BTCPayServer.Controllers.Greenfield
 {
     [ApiController]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+    [EnableCors(CorsPolicies.All)]
     public class GreenfieldStoreLightningNetworkPaymentMethodsController : ControllerBase
     {
         private StoreData Store => HttpContext.GetStoreData();
@@ -64,8 +66,7 @@ namespace BTCPayServer.Controllers.Greenfield
                         paymentMethod.GetExternalLightningUrl()?.ToString() ??
                         paymentMethod.GetDisplayableConnectionString(),
                         !excludedPaymentMethods.Match(paymentMethod.PaymentId),
-                        paymentMethod.PaymentId.ToStringNormalized(),
-                        paymentMethod.DisableBOLT11PaymentOption
+                        paymentMethod.PaymentId.ToStringNormalized()
                     )
                 )
                 .Where((result) => enabled is null || enabled == result.Enabled)
@@ -205,7 +206,7 @@ namespace BTCPayServer.Controllers.Greenfield
                 ? null
                 : new LightningNetworkPaymentMethodData(paymentMethod.PaymentId.CryptoCode,
                     paymentMethod.GetDisplayableConnectionString(), !excluded,
-                    paymentMethod.PaymentId.ToStringNormalized(), paymentMethod.DisableBOLT11PaymentOption);
+                    paymentMethod.PaymentId.ToStringNormalized());
         }
 
         private BTCPayNetwork AssertSupportLightning(string cryptoCode)

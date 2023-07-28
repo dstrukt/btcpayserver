@@ -80,6 +80,10 @@
     flex-shrink: 0;
 }
 
+#mainNav .navbar-nav > li.nav-item-sub {
+    padding-left:calc(1.5rem + var(--btcpay-space-xs))
+}
+
 #mainNav .navbar-nav > li.nav-item .nav-link span {
     max-width: 200px;
     overflow: hidden;
@@ -354,6 +358,11 @@
     border: 1px solid var(--btcpay-body-border-medium);
 }
 
+#NotificationsList svg {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
 /* Section Navigation / Subnav */
 #SectionNav {
     --border-size: 2px;
@@ -387,20 +396,13 @@
     background: var(--btcpay-nav-bg-active);
 }
 
-/* Sticky Header: The <div class="sticky-header-setup"></div> needs to be included once
-   before the first sticky-header on the page. The sticky-header has a padding-top so
-   that it does not scroll underneath the fixed header on mobile. The sticky-header-setup
-   negates that padding with a negative margin, so that everything fits in the end. */
-.sticky-header-setup {
-    margin-top: calc(var(--content-padding-top) * -1);
-}
-
 .sticky-header {
     position: -webkit-sticky;
     position: sticky;
     top: 0;
-    z-index: 1020;
+    z-index: 1021;
     background: var(--btcpay-body-bg);
+    margin-top: calc(var(--content-padding-top) * -1);
     /* pull it out of the content padding and adjust its inner padding to make up for that space */
     margin-left: calc(var(--content-padding-horizontal) * -1);
     margin-right: calc(var(--content-padding-horizontal) * -1);
@@ -420,14 +422,26 @@
     background: var(--btcpay-footer-bg);
 }
 
-.btcpay-footer a {
+.btcpay-footer a,
+.btcpay-footer button {
+    display: flex;
+    align-items: center;
+    gap: var(--btcpay-space-s);
     color: var(--btcpay-footer-link);
+    font-size: var(--btcpay-font-size-s);
     text-decoration: none;
+    padding: 0;
 }
 
 .btcpay-footer a:focus,
-.btcpay-footer a:hover {
+.btcpay-footer a:hover,
+.btcpay-footer button:focus,
+.btcpay-footer button:hover {
     color: var(--btcpay-footer-link-accent);
+}
+
+.btcpay-footer [data-clipboard-hover]::before {
+    top: .125rem;
 }
 
 @media (max-width: 991px) {
@@ -481,13 +495,9 @@
         transform: none;
     }
 
-    .offcanvas-backdrop {
+    #mainMenu .offcanvas-backdrop {
         top: var(--mobile-header-height);
         transition-duration: var(--btcpay-transition-duration-fast);
-    }
-
-    .offcanvas-backdrop.show {
-        opacity: 0.8;
     }
 
     #StoreSelector {
@@ -634,7 +644,7 @@
     }
     
     #mainMenuToggle,
-    .offcanvas-backdrop {
+    #mainMenu .offcanvas-backdrop {
         display: none !important;
     }
 
@@ -656,6 +666,11 @@
         max-width: none;
     }
 
+    #mainContent > section .w-100-fixed {
+        /* constrains the content to respect the maximum width and enable responsive tables */
+        width: calc(100vw - var(--sidebar-width) - var(--content-padding-horizontal) * 2);
+    }
+
     #SectionNav .nav {
         margin-top: calc(var(--btcpay-space-m) * -1);
     }
@@ -668,6 +683,12 @@
         margin-top: var(--btcpay-space-s);
         margin-right: var(--btcpay-space-l);
         margin-bottom: calc(var(--border-size) * -1);
+    }
+}
+
+@media (min-width: 992px) and (max-height: 799px) {
+    :root {
+        --content-padding-top: 1.25rem;
     }
 }
 

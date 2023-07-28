@@ -1,4 +1,5 @@
-﻿@model BTCPayServer.Models.WalletViewModels.ListWalletsViewModel
+﻿@using BTCPayServer.Client
+@model BTCPayServer.Models.WalletViewModels.ListWalletsViewModel
 @{
     ViewData.SetActivePage(WalletsNavPages.Index, "Wallets");
 }
@@ -9,8 +10,8 @@
     <h2 class="mb-0">
         @ViewData["Title"]
         <small>
-            <a href="https://docs.btcpayserver.org/Wallet/" target="_blank" rel="noreferrer noopener">
-                <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+            <a href="https://docs.btcpayserver.org/Wallet/" target="_blank" rel="noreferrer noopener" title="More information...">
+                <vc:icon symbol="info" />
             </a>
         </small>
     </h2>
@@ -42,16 +43,18 @@
                     @foreach (var wallet in Model.Wallets)
                     {
                         <tr>
-                            @if (wallet.IsOwner)
-                            {
-                                <td><a asp-action="GeneralSettings" asp-controller="UIStores" asp-route-storeId="@wallet.StoreId">@wallet.StoreName</a></td>
-                            }
-                            else
-                            {
-                                <td>@wallet.StoreName</td>
-                            }
+
+                            <td>
+                                <a
+                                    permission="@Policies.CanModifyStoreSettings"
+                                    asp-action="GeneralSettings" asp-controller="UIStores" asp-route-storeId="@wallet.StoreId">
+                                    @wallet.StoreName
+                                </a>
+                                <span not-permission="@Policies.CanModifyStoreSettings">@wallet.StoreName</span>
+                            </td>
+
                             <td>@wallet.CryptoCode</td>
-                            <td>@wallet.Balance</td>
+                            <td><span permission="@Policies.CanModifyStoreSettings">@wallet.Balance</span></td>
                             <td class="text-end">
                                 <a asp-action="WalletTransactions" asp-route-walletId="@wallet.Id">Manage</a>
                             </td>

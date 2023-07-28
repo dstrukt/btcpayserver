@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using BTCPayServer.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Newtonsoft.Json.Linq;
 
@@ -20,18 +21,33 @@ namespace BTCPayServer.Models.StoreViewModels
             Languages = new SelectList(choices, nameof(chosen.Value), nameof(chosen.Name), chosen);
             DefaultLang = chosen.Value;
         }
-        
+
         public SelectList Languages { get; set; }
 
         [Display(Name = "Unify on-chain and lightning payment URL/QR code")]
         public bool OnChainWithLnInvoiceFallback { get; set; }
 
+        [Display(Name = "Show \"Pay in wallet\" button")]
+        public bool ShowPayInWalletButton { get; set; }
+
+        [Display(Name = "Show the store header")]
+        public bool ShowStoreHeader { get; set; }
+
+        [Display(Name = "Display Lightning payment amounts in Satoshis")]
+        public bool LightningAmountInSatoshi { get; set; }
+
         [Display(Name = "Default payment method on checkout")]
         public string DefaultPaymentMethod { get; set; }
 
-        [Display(Name = "Use the new checkout")]
-        public bool UseNewCheckout { get; set; }
-        
+        [Display(Name = "Use the classic checkout")]
+        public bool UseClassicCheckout { get; set; }
+
+        [Display(Name = "Celebrate payment with confetti")]
+        public bool CelebratePayment { get; set; }
+
+        [Display(Name = "Enable sounds on checkout page")]
+        public bool PlaySoundOnPayment { get; set; }
+
         [Display(Name = "Requires a refund email")]
         public bool RequiresRefundEmail { get; set; }
 
@@ -49,11 +65,20 @@ namespace BTCPayServer.Models.StoreViewModels
 
         [Display(Name = "Link to a custom CSS stylesheet")]
         public string CustomCSS { get; set; }
+        
         [Display(Name = "Link to a custom logo")]
         public string CustomLogo { get; set; }
 
+        [Display(Name = "Custom sound file for successful payment")]
+        public IFormFile SoundFile { get; set; }
+        public string SoundFileId { get; set; }
+
         [Display(Name = "Custom HTML title to display on Checkout page")]
         public string HtmlTitle { get; set; }
+
+        [Display(Name = "Show a timer … minutes before invoice expiration")]
+        [Range(1, 60 * 24 * 24)]
+        public int DisplayExpirationTimer { get; set; }
 
         public class ReceiptOptionsViewModel
         {
@@ -63,7 +88,7 @@ namespace BTCPayServer.Models.StoreViewModels
             }
             [Display(Name = "Enable public receipt page for settled invoices")]
             public bool Enabled { get; set; }
-            
+
             [Display(Name = "Show the QR code of the receipt in the public receipt page")]
             public bool ShowQR { get; set; }
 

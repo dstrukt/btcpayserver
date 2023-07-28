@@ -1,8 +1,13 @@
-﻿@using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Services.Stores
+@using BTCPayServer.Abstractions.Contracts
 @model StoreUsersViewModel
+@inject IScopeProvider ScopeProvider
+@inject StoreRepository StoreRepository
 @{
     Layout = "../Shared/_NavLayout.cshtml";
     ViewData.SetActivePage(StoreNavPages.Users, "Store Users", Context.GetStoreData().Id);
+    var roles = new SelectList(await StoreRepository.GetStoreRoles(ScopeProvider.GetCurrentStoreId()), nameof(StoreRepository.StoreRole.Id), nameof(StoreRepository.StoreRole.Role), Model.Role);
 }
 
 <div class="row">
@@ -24,9 +29,7 @@
                     <input asp-for="Email" type="text" class="form-control" placeholder="user@example.com">
                 </div>
                 <div class="ms-3">
-                    <select asp-for="Role" class="form-select">
-                        <option value="@StoreRoles.Owner">Owner</option>
-                        <option value="@StoreRoles.Guest">Guest</option>
+                    <select asp-for="Role" class="form-select" asp-items="roles">
                     </select>
                 </div>
                 <div class="ms-3">
@@ -51,7 +54,7 @@
                         <td>@user.Email</td>
                         <td>@user.Role</td>
                         <td style="text-align:right">
-                            <a asp-action="DeleteStoreUser" asp-route-storeId="@Model.StoreId" asp-route-userId="@user.Id" data-bs-toggle="modal" data-bs-target="#ConfirmModal" data-description="This action will prevent <strong>@user.Email</strong> from accessing this store and its settings." data-confirm-input="REMOVE">Remove</a>
+                            <a asp-action="DeleteStoreUser" asp-route-storeId="@Model.StoreId" asp-route-userId="@user.Id" data-bs-toggle="modal" data-bs-target="#ConfirmModal" data-description="This action will prevent <strong>@Html.Encode(user.Email)</strong> from accessing this store and its settings." data-confirm-input="REMOVE">Remove</a>
                         </td>
                     </tr>
                 }

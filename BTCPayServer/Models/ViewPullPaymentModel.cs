@@ -82,21 +82,21 @@ namespace BTCPayServer.Models
         public decimal ClaimedAmount { get; set; }
         public decimal MinimumClaim { get; set; }
         public string Destination { get; set; }
-        public string AmountDueFormatted { get; set; }
         public decimal Amount { get; set; }
         public string Id { get; set; }
         public string Currency { get; set; }
         public DateTime? ExpiryDate { get; set; }
         public string Title { get; set; }
         public string Description { get; set; }
+        public string BrandColor { get; set; }
+        public string CssFileId { get; set; }
         public string EmbeddedCSS { get; set; }
         public string CustomCSSLink { get; set; }
-        public List<PayoutLine> Payouts { get; set; } = new ();
+        public List<PayoutLine> Payouts { get; set; } = new();
         public DateTimeOffset StartDate { get; set; }
         public DateTime LastRefreshed { get; set; }
         public CurrencyData CurrencyData { get; set; }
-        public string AmountCollectedFormatted { get; set; }
-        public string AmountFormatted { get; set; }
+        public Uri LnurlEndpoint { get; set; }
         public bool Archived { get; set; }
         public bool AutoApprove { get; set; }
 

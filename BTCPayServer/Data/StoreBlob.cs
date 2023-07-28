@@ -21,10 +21,11 @@ namespace BTCPayServer.Data
     public class StoreBlob
     {
         public static string StandardDefaultCurrency = "USD";
-        
+
         public StoreBlob()
         {
             InvoiceExpiration = TimeSpan.FromMinutes(15);
+            DisplayExpirationTimer = TimeSpan.FromMinutes(5);
             RefundBOLT11Expiration = TimeSpan.FromDays(30);
             MonitoringExpiration = TimeSpan.FromDays(1);
             PaymentTolerance = 0;
@@ -32,12 +33,15 @@ namespace BTCPayServer.Data
             RecommendedFeeBlockTarget = 1;
             PaymentMethodCriteria = new List<PaymentMethodCriteria>();
             ReceiptOptions = InvoiceDataBase.ReceiptOptions.CreateDefault();
+            CheckoutType = CheckoutType.V2;
         }
-        
+
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public NetworkFeeMode NetworkFeeMode { get; set; }
 
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        [DefaultValue(CheckoutType.V1)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
         public CheckoutType CheckoutType { get; set; }
         public bool RequiresRefundEmail { get; set; }
         public bool LightningAmountInSatoshi { get; set; }
@@ -61,6 +65,8 @@ namespace BTCPayServer.Data
                     _DefaultCurrency = _DefaultCurrency.Trim().ToUpperInvariant();
             }
         }
+        
+        public string StoreSupportUrl { get; set; }
 
         CurrencyPair[] _DefaultCurrencyPairs;
         [JsonProperty("defaultCurrencyPairs", ItemConverterType = typeof(CurrencyPairJsonConverter))]
@@ -95,6 +101,11 @@ namespace BTCPayServer.Data
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
         [JsonConverter(typeof(TimeSpanJsonConverter.Minutes))]
         public TimeSpan InvoiceExpiration { get; set; }
+
+        [DefaultValue(typeof(TimeSpan), "00:05:00")]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        [JsonConverter(typeof(TimeSpanJsonConverter.Minutes))]
+        public TimeSpan DisplayExpirationTimer { get; set; }
 
         public decimal Spread { get; set; } = 0.0m;
 
@@ -179,7 +190,7 @@ namespace BTCPayServer.Data
             return rules;
         }
 
-        public static JObject RecommendedExchanges = new ()
+        public static JObject RecommendedExchanges = new()
         {
             { "EUR", "kraken" },
             { "USD", "kraken" },
@@ -188,7 +199,9 @@ namespace BTCPayServer.Data
             { "GTQ", "bitpay" },
             { "COP", "yadio" },
             { "JPY", "bitbank" },
-            { "TRY", "btcturk" }
+            { "TRY", "btcturk" },
+            { "UGX", "exchangeratehost"},
+            { "RSD", "bitpay"}
         };
 
         public string GetRecommendedExchange() =>
@@ -209,8 +222,27 @@ namespace BTCPayServer.Data
         public TimeSpan RefundBOLT11Expiration { get; set; }
 
         public List<UIStoresController.StoreEmailRule> EmailRules { get; set; }
-        public string LogoFileId { get; set; }
         public string BrandColor { get; set; }
+        public string LogoFileId { get; set; }
+        public string CssFileId { get; set; }
+
+        [DefaultValue(true)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool ShowPayInWalletButton { get; set; } = true;
+
+        [DefaultValue(true)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool ShowStoreHeader { get; set; } = true;
+
+        [DefaultValue(true)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool CelebratePayment { get; set; } = true;
+        
+        [DefaultValue(false)]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        public bool PlaySoundOnPayment { get; set; } = false;
+
+        public string SoundFileId { get; set; }
 
         public IPaymentFilter GetExcludedPaymentMethods()
         {

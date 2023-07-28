@@ -9,6 +9,7 @@ using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Security;
+using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
@@ -111,14 +112,15 @@ namespace BTCPayServer.Controllers.Greenfield
             return Ok(FromModel(store));
         }
 
-        private Client.Models.StoreData FromModel(Data.StoreData data)
+        internal static Client.Models.StoreData FromModel(Data.StoreData data)
         {
             var storeBlob = data.GetStoreBlob();
-            return new Client.Models.StoreData()
+            return new Client.Models.StoreData
             {
                 Id = data.Id,
                 Name = data.StoreName,
                 Website = data.StoreWebsite,
+                SupportUrl = storeBlob.StoreSupportUrl,
                 SpeedPolicy = data.SpeedPolicy,
                 DefaultPaymentMethod = data.GetDefaultPaymentId()?.ToStringNormalized(),
                 //blob
@@ -127,6 +129,7 @@ namespace BTCPayServer.Controllers.Greenfield
                 //we do not include EmailSettings in this model and instead opt to set it in stores/storeid/email endpoints
                 //we do not include PaymentMethodCriteria because moving the CurrencyValueJsonConverter to the Client csproj is hard and requires a refactor (#1571 & #1572)
                 NetworkFeeMode = storeBlob.NetworkFeeMode,
+                DefaultCurrency = storeBlob.DefaultCurrency,
                 RequiresRefundEmail = storeBlob.RequiresRefundEmail,
                 CheckoutType = storeBlob.CheckoutType,
                 Receipt = InvoiceDataBase.ReceiptOptions.Merge(storeBlob.ReceiptOptions, null),
@@ -140,20 +143,27 @@ namespace BTCPayServer.Controllers.Greenfield
                 DefaultLang = storeBlob.DefaultLang,
                 MonitoringExpiration = storeBlob.MonitoringExpiration,
                 InvoiceExpiration = storeBlob.InvoiceExpiration,
+                DisplayExpirationTimer = storeBlob.DisplayExpirationTimer,
                 CustomLogo = storeBlob.CustomLogo,
                 CustomCSS = storeBlob.CustomCSS,
                 HtmlTitle = storeBlob.HtmlTitle,
                 AnyoneCanCreateInvoice = storeBlob.AnyoneCanInvoice,
                 LightningDescriptionTemplate = storeBlob.LightningDescriptionTemplate,
                 PaymentTolerance = storeBlob.PaymentTolerance,
-                PayJoinEnabled = storeBlob.PayJoinEnabled
+                PayJoinEnabled = storeBlob.PayJoinEnabled,
+                PaymentMethodCriteria = storeBlob.PaymentMethodCriteria?.Where(criteria => criteria.Value is not null)?.Select(criteria => new PaymentMethodCriteriaData()
+                {
+                    Above = criteria.Above,
+                    Amount = criteria.Value.Value,
+                    CurrencyCode = criteria.Value.Currency,
+                    PaymentMethod = criteria.PaymentMethod.ToStringNormalized()
+                })?.ToList() ?? new List<PaymentMethodCriteriaData>()
             };
         }
 
-        private void ToModel(StoreBaseData restModel, Data.StoreData model, PaymentMethodId defaultPaymentMethod)
+        private void ToModel(StoreBaseData restModel, StoreData model, PaymentMethodId defaultPaymentMethod)
         {
             var blob = model.GetStoreBlob();
-            model.StoreName = restModel.Name;
             model.StoreName = restModel.Name;
             model.StoreWebsite = restModel.Website;
             model.SpeedPolicy = restModel.SpeedPolicy;
@@ -177,8 +187,10 @@ namespace BTCPayServer.Controllers.Greenfield
             blob.ShowRecommendedFee = restModel.ShowRecommendedFee;
             blob.RecommendedFeeBlockTarget = restModel.RecommendedFeeBlockTarget;
             blob.DefaultLang = restModel.DefaultLang;
+            blob.StoreSupportUrl = restModel.SupportUrl;
             blob.MonitoringExpiration = restModel.MonitoringExpiration;
             blob.InvoiceExpiration = restModel.InvoiceExpiration;
+            blob.DisplayExpirationTimer = restModel.DisplayExpirationTimer;
             blob.CustomLogo = restModel.CustomLogo;
             blob.CustomCSS = restModel.CustomCSS;
             blob.HtmlTitle = restModel.HtmlTitle;
@@ -186,6 +198,17 @@ namespace BTCPayServer.Controllers.Greenfield
             blob.LightningDescriptionTemplate = restModel.LightningDescriptionTemplate;
             blob.PaymentTolerance = restModel.PaymentTolerance;
             blob.PayJoinEnabled = restModel.PayJoinEnabled;
+            blob.PaymentMethodCriteria = restModel.PaymentMethodCriteria?.Select(criteria =>
+                new PaymentMethodCriteria()
+                {
+                    Above = criteria.Above,
+                    Value = new CurrencyValue()
+                    {
+                        Currency = criteria.CurrencyCode,
+                        Value = criteria.Amount
+                    },
+                    PaymentMethod = PaymentMethodId.Parse(criteria.PaymentMethod)
+                }).ToList() ?? new List<PaymentMethodCriteria>();
             blob.NormalizeToRelativeLinks(Request);
             model.SetStoreBlob(blob);
         }
@@ -213,11 +236,38 @@ namespace BTCPayServer.Controllers.Greenfield
             }
             if (request.InvoiceExpiration < TimeSpan.FromMinutes(1) && request.InvoiceExpiration > TimeSpan.FromMinutes(60 * 24 * 24))
                 ModelState.AddModelError(nameof(request.InvoiceExpiration), "InvoiceExpiration can only be between 1 and 34560 mins");
+            if (request.DisplayExpirationTimer < TimeSpan.FromMinutes(1) && request.DisplayExpirationTimer > TimeSpan.FromMinutes(60 * 24 * 24))
+                ModelState.AddModelError(nameof(request.DisplayExpirationTimer), "DisplayExpirationTimer can only be between 1 and 34560 mins");
             if (request.MonitoringExpiration < TimeSpan.FromMinutes(10) && request.MonitoringExpiration > TimeSpan.FromMinutes(60 * 24 * 24))
-                ModelState.AddModelError(nameof(request.MonitoringExpiration), "InvoiceExpiration can only be between 10 and 34560 mins");
-            if (request.PaymentTolerance < 0 && request.PaymentTolerance > 100)
+                ModelState.AddModelError(nameof(request.MonitoringExpiration), "MonitoringExpiration can only be between 10 and 34560 mins");
+            if (request.PaymentTolerance < 0 || request.PaymentTolerance > 100)
                 ModelState.AddModelError(nameof(request.PaymentTolerance), "PaymentTolerance can only be between 0 and 100 percent");
 
+            if (request.PaymentMethodCriteria?.Any() is true)
+            {
+                for (int index = 0; index < request.PaymentMethodCriteria.Count; index++)
+                {
+                    PaymentMethodCriteriaData pmc = request.PaymentMethodCriteria[index];
+                    if (string.IsNullOrEmpty(pmc.CurrencyCode))
+                    {
+                        request.AddModelError(data => data.PaymentMethodCriteria[index].CurrencyCode, "CurrencyCode is required", this);
+                    }
+                    else if (CurrencyNameTable.Instance.GetCurrencyData(pmc.CurrencyCode, false) is null)
+                    {
+                        request.AddModelError(data => data.PaymentMethodCriteria[index].CurrencyCode, "CurrencyCode is invalid", this);
+                    }
+
+                    if (string.IsNullOrEmpty(pmc.PaymentMethod) || PaymentMethodId.TryParse(pmc.PaymentMethod) is null)
+                    {
+                        request.AddModelError(data => data.PaymentMethodCriteria[index].PaymentMethod, "Payment method was invalid", this);
+                    }
+
+                    if (pmc.Amount < 0)
+                    {
+                        request.AddModelError(data => data.PaymentMethodCriteria[index].Amount, "Amount must be greater than 0", this);
+                    }
+                }
+            }
             return !ModelState.IsValid ? this.CreateValidationError(ModelState) : null;
         }
 

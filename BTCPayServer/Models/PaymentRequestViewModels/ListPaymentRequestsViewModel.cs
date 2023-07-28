@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
+using BTCPayServer.Payments;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Validation;
@@ -17,6 +18,9 @@ namespace BTCPayServer.Models.PaymentRequestViewModels
     {
         public List<ViewPaymentRequestViewModel> Items { get; set; }
         public override int CurrentPageCount => Items.Count;
+        
+        public SearchString Search { get; set; }
+        public string SearchText { get; set; }
     }
 
     public class UpdatePaymentRequestViewModel
@@ -140,6 +144,10 @@ namespace BTCPayServer.Models.PaymentRequestViewModels
         public DateTime? ExpiryDate { get; set; }
         public string Title { get; set; }
         public string Description { get; set; }
+        public string LogoFileId { get; set; }
+        public string CssFileId { get; set; }
+        public string BrandColor { get; set; }
+        public string StoreName { get; set; }
         public string EmbeddedCSS { get; set; }
         public string CustomCSSLink { get; set; }
 
@@ -204,6 +212,8 @@ namespace BTCPayServer.Models.PaymentRequestViewModels
             public string Link { get; set; }
             public string Id { get; set; }
             public string Destination { get; set; }
+            public string PaymentProof { get; set; }
+            public PaymentType PaymentType { get; set; }
         }
     }
 }

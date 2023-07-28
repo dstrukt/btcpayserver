@@ -7,6 +7,10 @@ namespace BTCPayServer.Abstractions.Extensions;
 
 public static class GreenfieldExtensions
 {
+    public static IActionResult UserNotFound(this ControllerBase ctrl)
+    {
+        return ctrl.CreateAPIError(404, "user-not-found", "The user was not found");
+    }
     public static IActionResult CreateValidationError(this ControllerBase controller, ModelStateDictionary modelState)
     {
         return controller.UnprocessableEntity(modelState.ToGreenfieldValidationError());
@@ -30,12 +34,12 @@ public static class GreenfieldExtensions
     {
         return controller.BadRequest(new GreenfieldAPIError(errorCode, errorMessage));
     }
-        
+
     public static IActionResult CreateAPIError(this ControllerBase controller, int httpCode, string errorCode, string errorMessage)
     {
         return controller.StatusCode(httpCode, new GreenfieldAPIError(errorCode, errorMessage));
     }
-        
+
     public static IActionResult CreateAPIPermissionError(this ControllerBase controller, string missingPermission, string message = null)
     {
         return controller.StatusCode(403, new GreenfieldPermissionAPIError(missingPermission, message));

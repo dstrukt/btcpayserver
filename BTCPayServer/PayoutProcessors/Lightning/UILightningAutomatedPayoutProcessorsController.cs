@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
-using BTCPayServer.Data.Data;
+using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.PayoutProcessors.OnChain;
-using BTCPayServer.PayoutProcessors.Settings;
 using BTCPayServer.Services.Invoices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -51,7 +51,7 @@ public class UILightningAutomatedPayoutProcessorsController : Controller
                 new PayoutProcessorService.PayoutProcessorQuery()
                 {
                     Stores = new[] { storeId },
-                    Processors = new []{ _lightningAutomatedPayoutSenderFactory.Processor},
+                    Processors = new[] { _lightningAutomatedPayoutSenderFactory.Processor },
                     PaymentMethods = new[]
                     {
                         new PaymentMethodId(cryptoCode, LightningPaymentType.Instance).ToString()
@@ -59,14 +59,16 @@ public class UILightningAutomatedPayoutProcessorsController : Controller
                 }))
             .FirstOrDefault();
 
-        return View (new LightningTransferViewModel(activeProcessor is null? new AutomatedPayoutBlob() : OnChainAutomatedPayoutProcessor.GetBlob(activeProcessor)));
+        return View(new LightningTransferViewModel(activeProcessor is null ? new LightningAutomatedPayoutBlob() : LightningAutomatedPayoutProcessor.GetBlob(activeProcessor)));
     }
-    
+
     [HttpPost("~/stores/{storeId}/payout-processors/lightning-automated/{cryptocode}")]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     public async Task<IActionResult> Configure(string storeId, string cryptoCode, LightningTransferViewModel automatedTransferBlob)
     {
+        if (!ModelState.IsValid)
+            return View(automatedTransferBlob);
         if (!_lightningAutomatedPayoutSenderFactory.GetSupportedPaymentMethods().Any(id =>
                 id.CryptoCode.Equals(cryptoCode, StringComparison.InvariantCultureIgnoreCase)))
         {
@@ -82,7 +84,7 @@ public class UILightningAutomatedPayoutProcessorsController : Controller
                 new PayoutProcessorService.PayoutProcessorQuery()
                 {
                     Stores = new[] { storeId },
-                    Processors = new []{ _lightningAutomatedPayoutSenderFactory.Processor},
+                    Processors = new[] { _lightningAutomatedPayoutSenderFactory.Processor },
                     PaymentMethods = new[]
                     {
                         new PaymentMethodId(cryptoCode, LightningPaymentType.Instance).ToString()
@@ -90,7 +92,7 @@ public class UILightningAutomatedPayoutProcessorsController : Controller
                 }))
             .FirstOrDefault();
         activeProcessor ??= new PayoutProcessorData();
-        activeProcessor.Blob = InvoiceRepository.ToBytes(automatedTransferBlob.ToBlob());
+        activeProcessor.HasTypedBlob<LightningAutomatedPayoutBlob>().SetBlob(automatedTransferBlob.ToBlob());
         activeProcessor.StoreId = storeId;
         activeProcessor.PaymentMethod = new PaymentMethodId(cryptoCode, LightningPaymentType.Instance).ToString();
         activeProcessor.Processor = _lightningAutomatedPayoutSenderFactory.Processor;
@@ -107,26 +109,36 @@ public class UILightningAutomatedPayoutProcessorsController : Controller
             Message = "Processor updated."
         });
         await tcs.Task;
-        return RedirectToAction("ConfigureStorePayoutProcessors", "UiPayoutProcessors", new {storeId});
+        return RedirectToAction("ConfigureStorePayoutProcessors", "UiPayoutProcessors", new { storeId });
     }
 
     public class LightningTransferViewModel
     {
         public LightningTransferViewModel()
         {
-            
+
         }
 
-        public LightningTransferViewModel(AutomatedPayoutBlob blob)
+        public LightningTransferViewModel(LightningAutomatedPayoutBlob blob)
         {
             IntervalMinutes = blob.Interval.TotalMinutes;
+            CancelPayoutAfterFailures = blob.CancelPayoutAfterFailures;
+            ProcessNewPayoutsInstantly = blob.ProcessNewPayoutsInstantly;
         }
-        
+
+        public bool ProcessNewPayoutsInstantly { get; set; }
+
+        public int? CancelPayoutAfterFailures { get; set; }
+
+        [Range(AutomatedPayoutConstants.MinIntervalMinutes, AutomatedPayoutConstants.MaxIntervalMinutes)]
         public double IntervalMinutes { get; set; }
 
-        public AutomatedPayoutBlob ToBlob()
+        public LightningAutomatedPayoutBlob ToBlob()
         {
-            return new AutomatedPayoutBlob { Interval = TimeSpan.FromMinutes(IntervalMinutes) };
+            return new LightningAutomatedPayoutBlob {
+                ProcessNewPayoutsInstantly = ProcessNewPayoutsInstantly,
+                Interval = TimeSpan.FromMinutes(IntervalMinutes), 
+                CancelPayoutAfterFailures = CancelPayoutAfterFailures};
         }
     }
 }

@@ -26,9 +26,11 @@ using NBXplorer.Models;
 using Newtonsoft.Json.Linq;
 using InvoiceData = BTCPayServer.Client.Models.InvoiceData;
 using Language = BTCPayServer.Client.Models.Language;
+using LightningAddressData = BTCPayServer.Client.Models.LightningAddressData;
 using NotificationData = BTCPayServer.Client.Models.NotificationData;
 using PaymentRequestData = BTCPayServer.Client.Models.PaymentRequestData;
 using PayoutData = BTCPayServer.Client.Models.PayoutData;
+using PayoutProcessorData = BTCPayServer.Client.Models.PayoutProcessorData;
 using PullPaymentData = BTCPayServer.Client.Models.PullPaymentData;
 using StoreData = BTCPayServer.Client.Models.StoreData;
 using StoreWebhookData = BTCPayServer.Client.Models.StoreWebhookData;
@@ -109,11 +111,11 @@ namespace BTCPayServer.Controllers.Greenfield
             }
 
             return ActivatorUtilities.CreateInstance<LocalBTCPayServerClient>(_serviceProvider,
-                new LocalHttpContextAccessor() {HttpContext = context});
+                new LocalHttpContextAccessor() { HttpContext = context });
 
         }
     }
-    
+
 
     public class LocalHttpContextAccessor : IHttpContextAccessor
     {
@@ -124,7 +126,7 @@ namespace BTCPayServer.Controllers.Greenfield
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IServiceProvider _serviceProvider;
-        
+
 
         public LocalBTCPayServerClient(
             IHttpContextAccessor httpContextAccessor,
@@ -133,7 +135,7 @@ namespace BTCPayServer.Controllers.Greenfield
             _httpContextAccessor = httpContextAccessor;
             _serviceProvider = serviceProvider;
         }
-        
+
         private T GetController<T>() where T : ControllerBase
         {
             var authoverride = new AuthorizationService(new GreenfieldAuthorizationHandler(_httpContextAccessor,
@@ -141,7 +143,7 @@ namespace BTCPayServer.Controllers.Greenfield
                 _serviceProvider.GetService<StoreRepository>(),
                 _serviceProvider.GetService<IPluginHookService>()));
 
-            var controller =  _serviceProvider.GetService<T>();
+            var controller = _serviceProvider.GetService<T>();
             controller.ControllerContext.HttpContext = _httpContextAccessor.HttpContext;
             var authInterface = typeof(IAuthorizationService);
             var type = controller.GetType();
@@ -220,6 +222,20 @@ namespace BTCPayServer.Controllers.Greenfield
         {
             return GetFromActionResult<MarketTradeResponseData>(
                 await GetController<GreenfieldCustodianAccountController>().MarketTradeCustodianAccountAsset(storeId, accountId, request, cancellationToken));
+        }
+
+        public override async Task<WithdrawalSimulationResponseData> SimulateCustodianAccountWithdrawal(string storeId, string accountId,
+            WithdrawRequestData request, CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<WithdrawalSimulationResponseData>(
+                await GetController<GreenfieldCustodianAccountController>().SimulateWithdrawal(storeId, accountId, request, cancellationToken));
+        }
+
+        public override async Task<WithdrawalResponseData> CreateCustodianAccountWithdrawal(string storeId, string accountId,
+            WithdrawRequestData request, CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<WithdrawalResponseData>(
+                await GetController<GreenfieldCustodianAccountController>().CreateWithdrawal(storeId, accountId, request, cancellationToken));
         }
 
         public override async Task<OnChainWalletObjectData[]> GetOnChainWalletObjects(string storeId, string cryptoCode,
@@ -435,6 +451,13 @@ namespace BTCPayServer.Controllers.Greenfield
                 await GetController<GreenfieldStoreLightningNodeApiController>().GetInvoices(cryptoCode, pendingOnly, offsetIndex, token));
         }
 
+        public override async Task<LightningPaymentData[]> GetLightningPayments(string storeId, string cryptoCode,
+            bool? includePending = null, long? offsetIndex = null, CancellationToken token = default)
+        {
+            return GetFromActionResult<LightningPaymentData[]>(
+                await GetController<GreenfieldStoreLightningNodeApiController>().GetPayments(cryptoCode, includePending, offsetIndex, token));
+        }
+
         public override async Task<LightningInvoiceData> CreateLightningInvoice(string storeId, string cryptoCode,
             CreateLightningInvoiceRequest request, CancellationToken token = default)
         {
@@ -501,6 +524,13 @@ namespace BTCPayServer.Controllers.Greenfield
         {
             return GetFromActionResult<LightningInvoiceData[]>(
                 await GetController<GreenfieldInternalLightningNodeApiController>().GetInvoices(cryptoCode, pendingOnly, offsetIndex, token));
+        }
+
+        public override async Task<LightningPaymentData[]> GetLightningPayments(string cryptoCode,
+            bool? includePending = null, long? offsetIndex = null, CancellationToken token = default)
+        {
+            return GetFromActionResult<LightningPaymentData[]>(
+                await GetController<GreenfieldInternalLightningNodeApiController>().GetPayments(cryptoCode, includePending, offsetIndex, token));
         }
 
         public override async Task<LightningInvoiceData> CreateLightningInvoice(string cryptoCode,
@@ -654,7 +684,7 @@ namespace BTCPayServer.Controllers.Greenfield
         public override async Task<ApiKeyData> CreateAPIKey(CreateApiKeyRequest request,
             CancellationToken token = default)
         {
-            return GetFromActionResult<ApiKeyData>(await GetController<GreenfieldApiKeysController>().CreateKey(request));
+            return GetFromActionResult<ApiKeyData>(await GetController<GreenfieldApiKeysController>().CreateAPIKey(request));
         }
 
         public override async Task RevokeCurrentAPIKeyInfo(CancellationToken token = default)
@@ -664,7 +694,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
         public override async Task RevokeAPIKey(string apikey, CancellationToken token = default)
         {
-            HandleActionResult(await GetController<GreenfieldApiKeysController>().RevokeKey(apikey));
+            HandleActionResult(await GetController<GreenfieldApiKeysController>().RevokeAPIKey(apikey));
         }
 
         public override async Task<IEnumerable<NotificationData>> GetNotifications(bool? seen = null,
@@ -686,7 +716,7 @@ namespace BTCPayServer.Controllers.Greenfield
         {
             return GetFromActionResult<NotificationData>(
                 await GetController<GreenfieldNotificationsController>().UpdateNotification(notificationId,
-                    new UpdateNotification() {Seen = seen}));
+                    new UpdateNotification() { Seen = seen }));
         }
 
         public override async Task RemoveNotification(string notificationId, CancellationToken token = default)
@@ -1056,7 +1086,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
         public override async Task<OnChainWalletTransactionData> PatchOnChainWalletTransaction(string storeId,
             string cryptoCode, string transactionId,
-            PatchOnChainTransactionRequest request, bool force = false,CancellationToken token = default)
+            PatchOnChainTransactionRequest request, bool force = false, CancellationToken token = default)
         {
             return GetFromActionResult<OnChainWalletTransactionData>(
                 await GetController<GreenfieldStoreOnChainWalletsController>().PatchOnChainWalletTransaction(storeId, cryptoCode, transactionId,
@@ -1181,6 +1211,18 @@ namespace BTCPayServer.Controllers.Greenfield
                 await GetController<GreenfieldAppsController>().GetApp(appId));
         }
 
+        public override async Task<AppDataBase[]> GetAllApps(string storeId, CancellationToken token = default)
+        {
+            return GetFromActionResult<AppDataBase[]>(
+                await GetController<GreenfieldAppsController>().GetAllApps(storeId));
+        }
+
+        public override async Task<AppDataBase[]> GetAllApps(CancellationToken token = default)
+        {
+            return GetFromActionResult<AppDataBase[]>(
+                await GetController<GreenfieldAppsController>().GetAllApps());
+        }
+
         public override async Task DeleteApp(string appId, CancellationToken token = default)
         {
             HandleActionResult(await GetController<GreenfieldAppsController>().DeleteApp(appId));
@@ -1196,12 +1238,18 @@ namespace BTCPayServer.Controllers.Greenfield
             return Task.FromResult(GetFromActionResult<StoreRateConfiguration>(GetController<GreenfieldStoreRateConfigurationController>().GetStoreRateConfiguration()));
         }
 
-        public override async Task<List<StoreRatePreviewResult>> PreviewUpdateStoreRateConfiguration(string storeId,
+        public override async Task<List<StoreRateResult>> GetStoreRates(string storeId,
+            string[] currencyPair, CancellationToken token = default)
+        {
+            return GetFromActionResult<List<StoreRateResult>>(await GetController<GreenfieldStoreRatesController>().GetStoreRates(currencyPair));
+        }
+
+        public override async Task<List<StoreRateResult>> PreviewUpdateStoreRateConfiguration(string storeId,
             StoreRateConfiguration request,
             string[] currencyPair,
             CancellationToken token = default)
         {
-            return GetFromActionResult<List<StoreRatePreviewResult>>(
+            return GetFromActionResult<List<StoreRateResult>>(
                 await GetController<GreenfieldStoreRateConfigurationController>().PreviewUpdateStoreRateConfiguration(request,
                     currencyPair));
         }
@@ -1227,10 +1275,71 @@ namespace BTCPayServer.Controllers.Greenfield
             return GetFromActionResult<PayoutData>(await GetController<GreenfieldPullPaymentController>().GetPayout(pullPaymentId, payoutId));
         }
 
+        public override async Task<PullPaymentLNURL> GetPullPaymentLNURL(string pullPaymentId, CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<PullPaymentLNURL>(await GetController<GreenfieldPullPaymentController>().GetPullPaymentLNURL(pullPaymentId));
+        }
+
         public override async Task<PayoutData> GetStorePayout(string storeId, string payoutId,
             CancellationToken cancellationToken = default)
         {
             return GetFromActionResult<PayoutData>(await GetController<GreenfieldPullPaymentController>().GetStorePayout(storeId, payoutId));
+        }
+
+        public override async Task<LightningAddressData[]> GetStoreLightningAddresses(string storeId,
+            CancellationToken token = default)
+        {
+            return GetFromActionResult<LightningAddressData[]>(await GetController<GreenfieldStoreLightningAddressesController>().GetStoreLightningAddresses(storeId));
+        }
+
+        public override async Task<LightningAddressData> GetStoreLightningAddress(string storeId, string username, CancellationToken token = default)
+        {
+            return GetFromActionResult<LightningAddressData>(await GetController<GreenfieldStoreLightningAddressesController>().GetStoreLightningAddress(storeId, username));
+        }
+
+        public override async Task<LightningAddressData> AddOrUpdateStoreLightningAddress(string storeId, string username, LightningAddressData data,
+            CancellationToken token = default)
+        {
+            return GetFromActionResult<LightningAddressData>(await GetController<GreenfieldStoreLightningAddressesController>().AddOrUpdateStoreLightningAddress(storeId, username, data));
+        }
+
+        public override async Task RemoveStoreLightningAddress(string storeId, string username, CancellationToken token = default)
+        {
+            HandleActionResult(await GetController<GreenfieldStoreLightningAddressesController>().RemoveStoreLightningAddress(storeId, username));
+        }
+
+        public override async Task<PointOfSaleAppData> GetPosApp(string appId,
+            CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<PointOfSaleAppData>(await GetController<GreenfieldAppsController>().GetPosApp(appId));
+        }
+
+        public override async Task<CrowdfundAppData> GetCrowdfundApp(string appId,
+            CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<CrowdfundAppData>(await GetController<GreenfieldAppsController>().GetCrowdfundApp(appId));
+        }
+        public override async Task<PullPaymentData> RefundInvoice(string storeId, string invoiceId, RefundInvoiceRequest request, CancellationToken token = default)
+        {
+            return GetFromActionResult<PullPaymentData>(await GetController<GreenfieldInvoiceController>().RefundInvoice(storeId, invoiceId, request, token));
+        }
+        public override async Task RevokeAPIKey(string userId, string apikey, CancellationToken token = default)
+        {
+            HandleActionResult(await GetController<GreenfieldApiKeysController>().RevokeAPIKey(userId, apikey));
+        }
+
+        public override async Task<ApiKeyData> CreateAPIKey(string userId, CreateApiKeyRequest request, CancellationToken token = default)
+        {
+            return GetFromActionResult<ApiKeyData>(await GetController<GreenfieldApiKeysController>().CreateUserAPIKey(userId, request));
+        }
+
+        public override async Task<List<RoleData>> GetServerRoles(CancellationToken token = default)
+        {
+            return GetFromActionResult<List<RoleData>>(await GetController<GreenfieldServerRolesController>().GetServerRoles());
+        }
+        public override async Task<List<RoleData>> GetStoreRoles(string storeId, CancellationToken token = default)
+        {
+            return GetFromActionResult<List<RoleData>>(await GetController<GreenfieldStoreRolesController>().GetStoreRoles(storeId));
         }
     }
 }

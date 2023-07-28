@@ -159,7 +159,8 @@
                 "security": [
                     {
                         "API_Key": [
-                            "btcpay.store.canmanagepullpayments"
+                            "btcpay.store.cancreatepullpayments",
+                            "btcpay.store.cancreatenonapprovedpullpayments"
                         ],
                         "Basic": []
                     }
@@ -401,6 +402,46 @@
                 "security": []
             }
         },
+        "/api/v1/pull-payments/{pullPaymentId}/lnurl": {
+            "parameters": [
+                {
+                    "name": "pullPaymentId",
+                    "in": "path",
+                    "required": true,
+                    "description": "The ID of the pull payment",
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "get": {
+                "summary": "Get Pull Payment LNURL details",
+                "operationId": "PullPayments_GetPullPaymentLNURL",
+                "description": "Get Pull Payment LNURL details",
+                "responses": {
+                    "200": {
+                        "description": "Pull payment LNURL details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LNURLData"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Pull payment not found"
+                    },
+                    "400": {
+                        "description": "Pull payment found but does not support LNURL"
+                    }
+                },
+                "tags": [
+                    "Pull payments (Public)"
+                ],
+                "security": []
+            }
+        },
         "/api/v1/stores/{storeId}/payouts": {
             "parameters": [
                 {
@@ -470,7 +511,8 @@
                 "security": [
                     {
                         "API_Key": [
-                            "btcpay.store.canmanagepullpayments"
+                            "btcpay.store.cancreatepullpayments",
+                            "btcpay.store.cancreatenonapprovedpullpayments"
                         ],
                         "Basic": []
                     }
@@ -862,6 +904,10 @@
                             "approved": {
                                 "type": "boolean",
                                 "description": "Whether to approve this payout automatically upon creation"
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Additional metadata to store with the payout"
                             }
                         }
                     }
@@ -970,6 +1016,32 @@
                     },
                     "paymentProof": {
                         "$ref": "#/components/schemas/PayoutPaymentProof"
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Additional information around the payout that can be supplied. The mentioned properties are all optional and you can introduce any json format you wish.",
+                        "example": {
+                            "source": "Payout created through the API"
+                        },
+                        "anyOf": [
+                            {
+                                "title": "General information",
+                                "properties": {
+                                    "source": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "description": "The source of the payout creation. Shown on the payout list page."
+                                    },
+                                    "sourceLink": {
+                                        "type": "string",
+                                        "format": "url",
+                                        "nullable": true,
+                                        "description": "A link to the source of the payout creation. Shown on the payout list page."
+                                    }
+                                }
+                            }
+                        ]
                     }
                 }
             },
@@ -1024,6 +1096,21 @@
                     "viewLink": {
                         "type": "string",
                         "description": "The link to a page to claim payouts to this pull payment"
+                    }
+                }
+            },
+            "LNURLData": {
+                "type": "object",
+                "properties": {
+                    "lnurlBech32": {
+                        "type": "string",
+                        "description": "Bech32 representation of LNURL",
+                        "example": "lightning:lnurl1dp68gup69uhnzv3h9cczuvpwxyarzdp3xsez7sj5gvh42j2vfe24ynp0wa5hg6rywfshwtmswqhngvntdd6x6uzvx4jrvu2kvvur23n8v46rwjpexcc45563fn53w7"
+                    },
+                    "lnurlUri": {
+                        "type": "string",
+                        "description": "URI representation of LNURL",
+                        "example": "lnurlw://example.com/BTC/UILNURL/withdraw/pp/42kktmpL5d6qVc85Fget7H961ZSQ"
                     }
                 }
             }

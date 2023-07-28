@@ -1,47 +1,45 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Contracts;
+using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Configuration;
-using BTCPayServer.Controllers;
 using BTCPayServer.Data;
 using BTCPayServer.Fido2;
 using BTCPayServer.Fido2.Models;
-using BTCPayServer.Logging;
-using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
+using BTCPayServer.Plugins.Crowdfund;
+using BTCPayServer.Plugins.PointOfSale;
 using BTCPayServer.Plugins.PointOfSale.Models;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Storage.Models;
 using BTCPayServer.Storage.Services.Providers.FileSystemStorage.Configuration;
-using ExchangeSharp;
 using Fido2NetLib.Objects;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NBitcoin;
-using NBitcoin.DataEncoders;
-using NBXplorer;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PeterO.Cbor;
-using PayoutData = BTCPayServer.Data.PayoutData;
-using PullPaymentData = BTCPayServer.Data.PullPaymentData;
-using StoreData = BTCPayServer.Data.StoreData;
+using YamlDotNet.RepresentationModel;
+using YamlDotNet.Serialization;
+using LightningAddressData = BTCPayServer.Data.LightningAddressData;
+using Serializer = NBXplorer.Serializer;
 
 namespace BTCPayServer.Hosting
 {
     public class MigrationStartupTask : IStartupTask
     {
-        public Logs Logs { get; }
 
         private readonly ApplicationDbContextFactory _DBContextFactory;
         private readonly StoreRepository _StoreRepository;
@@ -111,12 +109,6 @@ namespace BTCPayServer.Hosting
                 {
                     await DeprecatedLightningConnectionStringCheck();
                     settings.DeprecatedLightningConnectionStringCheck = true;
-                    await _Settings.UpdateSetting(settings);
-                }
-                if (!settings.UnreachableStoreCheck)
-                {
-                    await UnreachableStoreCheck();
-                    settings.UnreachableStoreCheck = true;
                     await _Settings.UpdateSetting(settings);
                 }
                 if (!settings.ConvertMultiplierToSpread)
@@ -241,12 +233,210 @@ namespace BTCPayServer.Hosting
                     settings.FileSystemStorageAsDefault = true;
                     await _Settings.UpdateSetting(settings);
                 }
+                if (!settings.FixSeqAfterSqliteMigration)
+                {
+                    await FixSeqAfterSqliteMigration();
+                    settings.FixSeqAfterSqliteMigration = true;
+                    await _Settings.UpdateSetting(settings);
+                }
+                if (!settings.FixMappedDomainAppType)
+                {
+                    await FixMappedDomainAppType();
+                    settings.FixMappedDomainAppType = true;
+                }
+                if (!settings.MigrateAppYmlToJson)
+                {
+                    await MigrateAppYmlToJson();
+                    settings.MigrateAppYmlToJson = true;
+                    await _Settings.UpdateSetting(settings);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error on the MigrationStartupTask");
                 throw;
             }
+        }
+
+        private async Task FixMappedDomainAppType()
+        {
+            await using var ctx = _DBContextFactory.CreateContext();
+            var setting = await ctx.Settings.FirstOrDefaultAsync(s => s.Id == "BTCPayServer.Services.PoliciesSettings");
+            if (setting?.Value is null)
+                return;
+            string MapToString(int v)
+            {
+                return v switch
+                {
+                    0 => "PointOfSale",
+                    1 => "Crowdfund",
+                    _ => throw new NotSupportedException()
+                };
+            }
+            var data = JObject.Parse(setting.Value);
+            if (data["RootAppType"]?.Type is JTokenType.Integer)
+            {
+                var v = data["RootAppType"].Value<int>();
+                data["RootAppType"] = new JValue(MapToString(v));
+            }
+            var arr = data["DomainToAppMapping"] as JArray;
+            if (arr != null)
+            {
+                foreach (var map in arr)
+                {
+                    if (map["AppType"]?.Type is JTokenType.Integer)
+                    {
+                        var v = map["AppType"].Value<int>();
+                        map["AppType"] = new JValue(MapToString(v));
+                    }
+                }
+            }
+            setting.Value = data.ToString();
+            await ctx.SaveChangesAsync();
+        }
+
+
+        private async Task FixSeqAfterSqliteMigration()
+        {
+            await using var ctx = _DBContextFactory.CreateContext();
+            if (!ctx.Database.IsNpgsql())
+                return;
+            var state = await ToPostgresMigrationStartupTask.GetMigrationState(ctx);
+            if (state != "complete")
+                return;
+            await ToPostgresMigrationStartupTask.UpdateSequenceInvoiceSearch(ctx);
+        }
+        private async Task MigrateAppYmlToJson()
+        {
+            await using var ctx = _DBContextFactory.CreateContext();
+            var apps = await ctx.Apps.Where(data => CrowdfundAppType.AppType == data.AppType || PointOfSaleAppType.AppType  == data.AppType)
+                .ToListAsync();
+            foreach (var app  in apps)
+            {
+                switch (app.AppType)
+                {
+                   case CrowdfundAppType.AppType :
+                       var cfSettings = app.GetSettings<CrowdfundSettings>();
+                       if (!string.IsNullOrEmpty(cfSettings?.PerksTemplate))
+                       {
+                           cfSettings.PerksTemplate = AppService.SerializeTemplate(ParsePOSYML(cfSettings?.PerksTemplate));
+                           app.SetSettings(cfSettings);
+                       }
+                       break;
+                   case PointOfSaleAppType.AppType:
+                       var pSettings = app.GetSettings<PointOfSaleSettings>();
+                       if (!string.IsNullOrEmpty(pSettings?.Template))
+                       {
+                           pSettings.Template = AppService.SerializeTemplate(ParsePOSYML(pSettings?.Template));
+                           app.SetSettings(pSettings);
+                       }
+                       break;
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+            
+        }
+        public static ViewPointOfSaleViewModel.Item[] ParsePOSYML(string yaml)
+        {
+            var items = new List<ViewPointOfSaleViewModel.Item>();
+            var stream = new YamlStream();
+            if (string.IsNullOrEmpty(yaml))
+                return items.ToArray();
+            
+            stream.Load(new StringReader(yaml));
+
+            if(stream.Documents.FirstOrDefault()?.RootNode is not YamlMappingNode root)
+                return items.ToArray();
+            foreach (var posItem in root.Children)
+            {
+                var trimmedKey = ((YamlScalarNode)posItem.Key).Value?.Trim();
+                if (string.IsNullOrEmpty(trimmedKey))
+                {
+                    continue;
+                }
+
+                var currentItem = new ViewPointOfSaleViewModel.Item
+                {
+                    Id = trimmedKey, Title = trimmedKey, PriceType = ViewPointOfSaleViewModel.ItemPriceType.Fixed
+                };
+                var itemSpecs = (YamlMappingNode)posItem.Value;
+                foreach (var spec in itemSpecs)
+                {
+                    if (spec.Key is not YamlScalarNode {Value: string keyString} || string.IsNullOrEmpty(keyString))
+                        continue;
+                    var scalarValue = spec.Value as YamlScalarNode;
+                    switch (keyString)
+                    {
+                        case "title":
+                            currentItem.Title = scalarValue?.Value ?? trimmedKey;
+                            break;
+                        case "inventory":
+                            if (int.TryParse(scalarValue?.Value, out var inv))
+                            {
+                                currentItem.Inventory = inv;
+                            }
+                            break;
+                        case "description":
+                            currentItem.Description = scalarValue?.Value;
+                            break;
+                        case "image":
+                            currentItem.Image = scalarValue?.Value;
+                            break;
+                        case "payment_methods" when spec.Value is YamlSequenceNode pmSequenceNode:
+
+                            currentItem.PaymentMethods = pmSequenceNode.Children
+                                .Select(node => (node as YamlScalarNode)?.Value?.Trim())
+                                .Where(node => !string.IsNullOrEmpty(node)).ToArray();
+                            break;
+                        case "price_type":
+                        case "custom":
+                            if (bool.TryParse(scalarValue?.Value, out var customBoolValue))
+                            {
+                                if (customBoolValue)
+                                {
+                                    currentItem.PriceType = currentItem.Price is null or 0
+                                        ? ViewPointOfSaleViewModel.ItemPriceType.Topup
+                                        : ViewPointOfSaleViewModel.ItemPriceType.Minimum;
+                                }
+                                else
+                                {
+                                    currentItem.PriceType = ViewPointOfSaleViewModel.ItemPriceType.Fixed;
+                                }
+                            }
+                            else if (Enum.TryParse<ViewPointOfSaleViewModel.ItemPriceType>(scalarValue?.Value, true,
+                                         out var customPriceType))
+                            {
+                                currentItem.PriceType = customPriceType;
+                            }
+
+                            break;
+                        case "price":
+                            if (decimal.TryParse(scalarValue?.Value, out var price))
+                            {
+                                currentItem.Price = price;
+                            }
+
+                            break;
+
+                        case "buybuttontext":
+                            currentItem.BuyButtonText = scalarValue?.Value;
+                            break;
+
+                        case "disabled":
+                            if (bool.TryParse(scalarValue?.Value, out var disabled))
+                            {
+                                currentItem.Disabled = disabled;
+                            }
+
+                            break;
+                    }
+                }
+
+                items.Add(currentItem);
+            }
+
+            return items.ToArray();
         }
 
 #pragma warning disable CS0612 // Type or member is obsolete
@@ -343,11 +533,12 @@ namespace BTCPayServer.Hosting
             }
 
             var storeids = lightningAddressSettings.StoreToItemMap.Keys.ToArray();
-            var existingStores = (await ctx.Stores.Where(data => storeids.Contains(data.Id)).Select(data => data.Id ).ToArrayAsync()).ToHashSet();
+            var existingStores = (await ctx.Stores.Where(data => storeids.Contains(data.Id)).Select(data => data.Id).ToArrayAsync()).ToHashSet();
 
             foreach (var storeMap in lightningAddressSettings.StoreToItemMap)
             {
-                if (!existingStores.Contains(storeMap.Key)) continue;
+                if (!existingStores.Contains(storeMap.Key))
+                    continue;
                 foreach (var storeitem in storeMap.Value)
                 {
                     if (lightningAddressSettings.Items.TryGetValue(storeitem, out var val))
@@ -356,14 +547,14 @@ namespace BTCPayServer.Hosting
                             new LightningAddressData()
                             {
                                 StoreDataId = storeMap.Key,
-                                Username = storeitem,
-                                Blob = new LightningAddressDataBlob()
-                                {
-                                    Max = val.Max,
-                                    Min = val.Min,
-                                    CurrencyCode = val.CurrencyCode
-                                }.SerializeBlob()
-                            }, ctx);
+                                Username = storeitem
+                            }
+                            .SetBlob(new LightningAddressDataBlob()
+                            {
+                                Max = val.Max,
+                                Min = val.Min,
+                                CurrencyCode = val.CurrencyCode
+                            }), ctx);
                     }
                 }
             }
@@ -374,11 +565,11 @@ namespace BTCPayServer.Hosting
 
         private async Task MigrateLighingAddressSettingRename()
         {
-           var old = await _Settings.GetSettingAsync<UILNURLController.LightningAddressSettings>("BTCPayServer.LNURLController+LightningAddressSettings");
-           if (old is not null)
-           {
-              await _Settings.UpdateSetting(old, nameof(UILNURLController.LightningAddressSettings));
-           }
+            var old = await _Settings.GetSettingAsync<UILNURLController.LightningAddressSettings>("BTCPayServer.LNURLController+LightningAddressSettings");
+            if (old is not null)
+            {
+                await _Settings.UpdateSetting(old, nameof(UILNURLController.LightningAddressSettings));
+            }
         }
 
         private async Task MigrateAddStoreToPayout()
@@ -404,14 +595,14 @@ WHERE cte.""Id""=p.""Id""
                 var queryable = ctx.Payouts.Where(data => data.StoreDataId == null);
                 var count = await queryable.CountAsync();
                 _logger.LogInformation($"Migrating {count} payouts to have a store id explicitly");
-                for (int i = 0; i < count; i+=1000)
+                for (int i = 0; i < count; i += 1000)
                 {
                     await queryable.Include(data => data.PullPaymentData).Skip(i).Take(1000)
                         .ForEachAsync(data => data.StoreDataId = data.PullPaymentData.StoreId);
-                
+
                     await ctx.SaveChangesAsync();
-                
-                    _logger.LogInformation($"Migrated {i+1000}/{count} payouts to have a store id explicitly");
+
+                    _logger.LogInformation($"Migrated {i + 1000}/{count} payouts to have a store id explicitly");
                 }
             }
         }
@@ -453,27 +644,18 @@ WHERE cte.""Id""=p.""Id""
             await using var ctx = _DBContextFactory.CreateContext();
             foreach (var app in await ctx.Apps.Include(data => data.StoreData).AsQueryable().ToArrayAsync())
             {
-                ViewPointOfSaleViewModel.Item[] items;
-                string newTemplate;
                 switch (app.AppType)
                 {
-                    case nameof(AppType.Crowdfund):
+                    case CrowdfundAppType.AppType:
                         var settings1 = app.GetSettings<CrowdfundSettings>();
                         if (string.IsNullOrEmpty(settings1.TargetCurrency))
                         {
                             settings1.TargetCurrency = app.StoreData.GetStoreBlob().DefaultCurrency;
                             app.SetSettings(settings1);
                         }
-                        items = _appService.Parse(settings1.PerksTemplate, settings1.TargetCurrency);
-                        newTemplate = _appService.SerializeTemplate(items);
-                        if (settings1.PerksTemplate != newTemplate)
-                        {
-                            settings1.PerksTemplate = newTemplate;
-                            app.SetSettings(settings1);
-                        };
                         break;
 
-                    case nameof(AppType.PointOfSale):
+                    case PointOfSaleAppType.AppType:
 
                         var settings2 = app.GetSettings<PointOfSaleSettings>();
                         if (string.IsNullOrEmpty(settings2.Currency))
@@ -481,13 +663,6 @@ WHERE cte.""Id""=p.""Id""
                             settings2.Currency = app.StoreData.GetStoreBlob().DefaultCurrency;
                             app.SetSettings(settings2);
                         }
-                        items = _appService.Parse(settings2.Template, settings2.Currency);
-                        newTemplate = _appService.SerializeTemplate(items);
-                        if (settings2.Template != newTemplate)
-                        {
-                            settings2.Template = newTemplate;
-                            app.SetSettings(settings2);
-                        };
                         break;
                 }
             }
@@ -684,9 +859,16 @@ WHERE cte.""Id""=p.""Id""
 retry:
                 try
                 {
-                    await _DBContextFactory.CreateContext().Database.MigrateAsync();
+                    var db = _DBContextFactory.CreateContext();
+                    await db.Database.MigrateAsync();
+                    if (db.Database.IsNpgsql())
+                    {
+                        if (await db.GetMigrationState() == "pending")
+                            throw new ConfigException("This database hasn't been completely migrated, please retry migration by setting the BTCPAY_SQLITEFILE or BTCPAY_MYSQL setting on top of BTCPAY_POSTGRES");
+                    }
                 }
                 // Starting up
+                catch (ConfigException) { throw; }
                 catch when (!cts.Token.IsCancellationRequested)
                 {
                     try
@@ -866,11 +1048,6 @@ retry:
             {
                 return rate * (decimal)Multiplier;
             }
-        }
-
-        private Task UnreachableStoreCheck()
-        {
-            return _StoreRepository.CleanUnreachableStores();
         }
 
         private async Task DeprecatedLightningConnectionStringCheck()

@@ -8,6 +8,25 @@
     --chart-series-e-rgb: 160, 98, 75;
 }
 
+/* Hide sensitive info */
+[data-hide-sensitive-info="true"] [data-sensitive] {
+    display: inline-flex;
+    position: relative;
+    visibility: hidden;
+    overflow: hidden;
+}
+
+[data-hide-sensitive-info="true"] [data-sensitive]:before {
+    content: '***********************';
+    visibility: visible;
+    position: absolute;
+    top: .2em;
+}
+
+[data-hide-sensitive-info="true"] .store-wallet-balance .ct-label.ct-vertical.ct-start {
+    visibility: hidden;
+}
+
 /* General and site-wide Bootstrap modifications */
 p {
     margin-bottom: 1.5rem;
@@ -39,23 +58,9 @@ hr.primary {
     background-color: var(--btcpay-form-bg);
 }
 
-.wraptextAuto {
-    max-width: 300px;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    display: block;
-    white-space: nowrap;
-}
-
 @media (min-width: 768px) {
     .text-md-nowrap {
         white-space: nowrap;
-    }
-}
-
-@media (min-width: 768px) {
-    .wraptextAuto {
-        max-width: 600px;
     }
 }
 
@@ -124,10 +129,24 @@ a.unobtrusive-link {
 }
 
 /* Info icons in main headline */
-h2 small .fa-question-circle-o {
+svg.icon.icon-info {
     position: relative;
-    top: -.1rem;
-    font-size: var(--btcpay-font-size-l);
+    top: -.05em;
+    color: var(--btcpay-neutral-500);
+}
+
+svg.icon.icon-info:hover {
+    color: var(--btcpay-primary);
+}
+
+h2 svg.icon.icon-info {
+    width: 1.2rem;
+    height: 1.2rem;
+    top: -.0125em;
+}
+
+#descriptor p {
+    max-width: 40em;
 }
 
 /* Invoices */
@@ -138,7 +157,7 @@ h2 small .fa-question-circle-o {
     cursor: pointer;
     padding: 0;
 }
-@media (min-width: 1200px) {
+@media (min-width: 1400px) {
     #MassAction {
         margin-top: -4rem;
     }
@@ -205,31 +224,21 @@ h2 small .fa-question-circle-o {
     margin-top: .5rem;
 }
 
-/* Store header */
-.store-header {
-    --logo-size: 3rem;
-    
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--btcpay-space-s);
-}
-
-.store-header .logo {
-    height: var(--logo-size);
-}
-
-.store-header .logo--square {
-    width: var(--logo-size);
-    border-radius: 50%;
-}
-
-.store-header h1 {
-    font-size: 1.3rem;
-}
-
 /* Print */
 @media print {
+    section {
+        page-break-inside: avoid;
+    }
+    .table-responsive {
+        overflow: visible !important;
+    }
+    .table .text-truncate {
+        overflow: visible !important;
+        max-width: none !important;
+        white-space: unset !important;
+        word-wrap: break-word !important;
+        word-break: break-word !important;
+    }
     .table td,
     .table th {
         background: transparent;
@@ -245,6 +254,14 @@ h2 small .fa-question-circle-o {
     }
     .toasted-container {
         display: none !important;
+    }
+    .truncate-center a,
+    .truncate-center button,
+    .truncate-center-truncated {
+        display: none;
+    }
+    .card {
+        page-break-inside: avoid;
     }
     #markStatusDropdownMenuButton {
         border: 0;
@@ -588,3 +605,462 @@ svg.icon-note {
 }
 
 .modal-footer .modal-footer-left{ margin-right: auto; }
+
+/* List Select */
+.btcpay-list-select {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--btcpay-space-s);
+}
+.btcpay-list-select > input {
+    display: none;
+}
+.btcpay-list-select-item {
+    display: flex;
+    flex-wrap: wrap;
+    flex: 1 1 45%; 
+    align-items: center;
+    padding: .75rem var(--btcpay-space-s);
+    cursor: pointer;
+}
+label.btcpay-list-select-item {
+    border: 1px solid var(--btcpay-form-border);
+    background-color: var(--btcpay-form-bg);
+    border-radius: var(--btcpay-border-radius);
+    transition: border-color 0.15s ease-in-out;
+}
+label.btcpay-list-select-item:hover {
+    border-color: var(--btcpay-form-border-hover);
+    background-color: var(--btcpay-form-bg-hover);
+}
+@media (max-width: 575px) {
+    .btcpay-list-select-item {
+        flex-basis: 100%;
+    }
+}
+.btcpay-list-select-item .icon {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0 var(--btcpay-space-s);
+}
+input:checked + label.btcpay-list-select-item {
+    border-color: var(--btcpay-form-border-focus);
+}
+.btcpay-list-select-item .note {
+    color: var(--btcpay-body-text-muted);
+    flex-basis: 100%;
+    margin-left: 2.5rem;
+}
+.btcpay-list-select-item:active {
+    background-color: var(--btcpay-form-bg-hover);
+}
+
+/* Public pages */
+.public-page-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin: 0 auto;
+    padding: var(--btcpay-space-l) var(--btcpay-space-m);
+}
+
+/* gradually try to set better but less supported values and units */
+.min-vh-100,
+.public-page-wrap {
+    min-height: -webkit-fill-available !important;
+    min-height: 100dvh !important;
+}
+
+@media (max-width: 400px) {
+    .public-page-wrap {
+        padding-left: 0;
+        padding-right: 0;
+    }
+}
+
+.store-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+}
+
+.store-logo {
+    --logo-size: 3rem;
+    --logo-bg: transparent;
+    --logo-radius: 50%;
+
+    width: var(--logo-size);
+    height: var(--logo-size);
+    background: var(--logo-bg);
+    border-radius: var(--logo-radius);
+}
+
+.store-name {
+    font-size: 1.3rem;
+}
+
+.store-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--btcpay-space-m);
+    margin-top: auto;
+    color: var(--btcpay-body-text-muted);
+    padding: 1.5rem 1.5rem 0;
+}
+.store-footer,
+.store-footer a {
+    color: var(--btcpay-body-text-muted);
+}
+a.store-powered-by {
+    display: flex;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+    transition-duration: unset;
+}
+a.store-powered-by svg {
+    height: 2rem;
+    width: 4rem;
+}
+a.store-powered-by:hover {
+    color: var(--btcpay-body-text-hover);
+}
+a.store-powered-by:hover .logo-brand-light {
+    color: var(--btcpay-brand-secondary);
+}
+a.store-powered-by:hover .logo-brand-medium {
+    color: var(--btcpay-brand-primary);
+}
+a.store-powered-by:hover .logo-brand-dark {
+    color: var(--btcpay-brand-tertiary);
+}
+
+/* Payment Box */
+.payment-box {
+    --qr-size: 256px;
+    --icon-size: 64px;
+    --icon-border-size: var(--btcpay-space-xs);
+    --icon-border-color: var(--btcpay-white);
+    
+    max-width: 320px;
+    min-width: var(--qr-size);
+    margin: 0 auto;
+    text-align: center;
+}
+.payment-box .qr-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    min-height: var(--qr-size);
+}
+.payment-box .qr-container svg,
+.payment-box .qr-container img.qr-code {
+    border-radius: var(--btcpay-border-radius);
+    background: var(--btcpay-white);
+    width: 100%;
+}
+.payment-box .qr-container svg {
+    padding: var(--btcpay-space-s);
+}
+.payment-box .qr-container img.qr-icon {
+    box-sizing: content-box;
+    position: absolute;
+    width: var(--icon-size);
+    border-radius: 50%;
+    padding: var(--icon-border-size);
+    background: var(--icon-border-color);
+}
+.payment-box .qr-container small {
+    display: none;
+}
+.payment-box .input-group {
+    align-items: flex-end;
+}
+.payment-box .input-group .form-control-plaintext {
+    padding-left: 3px;
+    padding-bottom: 0;
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.payment-box .input-group label {
+    padding-left: 0;
+    text-transform: uppercase;
+    letter-spacing: .1rem;
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.payment-box .input-group button {
+    padding: 0 0 var(--btcpay-space-xs) 0;
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+
+/* Tom Select */
+.ts-control, .ts-control input, .ts-dropdown {
+    color: var(--btcpay-body-text-muted) !important;
+}
+
+.ts-wrapper.form-control .ts-control {
+    gap: .5rem;
+    outline: 0 !important;
+}
+
+.ts-wrapper.form-control:not(.ts-inline) .ts-control {
+    padding: .5rem !important;
+    border-radius: var(--btcpay-border-radius) !important;
+}
+
+.ts-wrapper.form-control.focus:not(.ts-inline) .ts-control {
+    border-color: var(--btcpay-form-border-focus);
+    box-shadow: 0 0 0 1px var(--btcpay-form-border-focus) inset;
+}
+
+.ts-wrapper.form-control.ts-inline,
+.ts-wrapper.form-control.ts-inline .ts-control {
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    min-height: auto !important;
+    background: transparent !important;
+}
+
+.form-floating .ts-wrapper {
+    margin-top: 1.85rem;
+}
+
+.form-floating input.ts-wrapper.form-control:not(.ts-hidden-accessible) {
+    padding: .5rem .75rem !important;
+    height: 39px;
+}
+
+.form-floating input.label-manager.form-control ~ label {
+    opacity: 0.65;
+    transform: scale(0.85) translateY(-0.5rem) translateX(0.15rem);
+}
+
+input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
+    padding: .5rem .75rem !important;
+    height: 46px;
+}
+
+.ts-dropdown.dropdown-menu,
+.ts-dropdown.dropdown-menu.form-control,
+.ts-dropdown.dropdown-menu.form-select {
+    color: var(--btcpay-dropdown-color);
+    background: var(--btcpay-dropdown-bg);
+    border: var(--btcpay-dropdown-border-width) solid var(--btcpay-dropdown-border-color);
+    border-radius: var(--btcpay-dropdown-border-radius);
+    padding: var(--btcpay-dropdown-padding-y) var(--btcpay-dropdown-padding-x);
+    min-width: var(--btcpay-dropdown-min-width);
+}
+
+.ts-dropdown.dropdown-menu .ts-dropdown-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+    padding: 0 var(--btcpay-space-s);
+}
+
+/* Transaction Labels */
+.transaction-label,
+.ts-dropdown.dropdown-menu .transaction-label,
+.ts-dropdown.dropdown-menu .create.transaction-label,
+.ts-wrapper.form-control .ts-control > .item.transaction-label {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--btcpay-space-xs);
+    color: var(--btcpay-body-text);
+    background: transparent;
+    border: 1px solid var(--label-bg, var(--btcpay-neutral-300));
+    border-radius: var(--btcpay-border-radius-l);
+    font-size:  var(--btcpay-font-size-s);
+    margin: 0;
+    padding: 1px var(--btcpay-space-s);
+    text-align: left;
+}
+
+.transaction-label a {
+    display: inline-flex;
+    align-items: center;
+    color: var(--btcpay-body-text);
+}
+
+.transaction-label:focus,
+.transaction-label:hover,
+.transaction-label.active,
+.ts-dropdown.dropdown-menu .transaction-label:focus,
+.ts-dropdown.dropdown-menu .transaction-label:hover,
+.ts-wrapper.multi .ts-control > .item.transaction-label:focus,
+.ts-wrapper.multi .ts-control > .item.transaction-label:hover,
+.ts-wrapper.multi .ts-control > .item.transaction-label.active {
+    color: var(--label-fg, var(--btcpay-body-text));
+    background: var(--label-bg, var(--btcpay-neutral-300));
+}
+
+.transaction-label:focus a,
+.transaction-label:focus .transaction-label-info svg.icon,
+.transaction-label:focus .transaction-label-action svg.icon,
+.transaction-label:hover a,
+.transaction-label:hover .transaction-label-info svg.icon,
+.transaction-label:hover .transaction-label-action svg.icon,
+.transaction-label.active a,
+.transaction-label.active .transaction-label-info svg.icon,
+.transaction-label.active .transaction-label-action svg.icon {
+    color: var(--label-fg);
+}
+
+.transaction-label-info,
+.transaction-label-action,
+.transaction-label form {
+    --button-size: .9rem;
+    display: inline-flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    width: var(--button-size);
+    height: var(--button-size);
+    flex: 0 0 var(--button-size);
+}
+
+.transaction-label svg.icon {
+    display: block;
+    position: static;
+    width: 100%;
+    height: 100%;
+    color: var(--label-bg);
+}
+
+.transaction-label-action {
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.transaction-label-action svg.icon {
+    transform: scale(1.725);
+}
+
+.transaction-label-tooltip .tooltip-inner {
+    max-width: 15rem;
+    text-align: left;
+}
+
+.transaction-label-tooltip ul {
+    margin: 0;
+    padding-left: var(--btcpay-space-m);
+}
+
+/* Truncated text */
+.truncate-center {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+    max-width: 100%;
+}
+
+.truncate-center--elastic .truncate-center-start {
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.truncate-center-id {
+    font-family: var(--btcpay-font-monospace);
+    font-size: .875em;
+}
+
+.truncate-center-text {
+    word-wrap: break-word;
+    word-break: break-word;
+}
+
+.truncate-center a,
+.truncate-center button {
+    line-height: 1;
+}
+
+.truncate-center-truncated {
+    text-align: left;
+    display: inline-flex;
+    max-width: 100%;
+}
+
+.truncate-center button.btn .icon {
+    --btn-icon-size: 1em;
+}
+
+.truncate-center--elastic .truncate-center-truncated {
+    max-width: 100%;
+}
+
+.truncate-center--elastic.truncate-center--copy .truncate-center-truncated {
+    max-width: calc(100% - 2em);
+}
+
+.truncate-center.form-control-plaintext {
+    padding-right: 3px;
+}
+
+.truncate-center.form-control-plaintext button.btn .icon {
+    --btn-icon-size: 1.25em;
+}
+
+@media screen {
+    .truncate-center-id {
+        background: var(--btcpay-neutral-100);
+        border: 1px solid var(--btcpay-neutral-200);
+        border-radius: var(--btcpay-border-radius-l);
+        padding: var(--btcpay-space-xs) var(--btcpay-space-s);
+    }
+    
+    .truncate-center-text {
+        display: none;
+    }
+}
+
+/* Copy */
+[data-clipboard],
+[data-clipboard] input[readonly] {
+    cursor: copy;
+}
+[data-clipboard-hover] {
+    position: relative;
+}
+[data-clipboard-hover]::before {
+    content: '';
+    position: absolute;
+    top: .45rem;
+    left: calc(100% + var(--btcpay-space-s));
+    width: .75em;
+    height: .75em;
+    min-width: 1rem;
+    min-height: 1rem;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--btcpay-transition-duration-fast);
+    background-repeat: no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M13.3333 6H7.33333C6.59695 6 6 6.59695 6 7.33333V13.3333C6 14.0697 6.59695 14.6667 7.33333 14.6667H13.3333C14.0697 14.6667 14.6667 14.0697 14.6667 13.3333V7.33333C14.6667 6.59695 14.0697 6 13.3333 6Z' stroke='%236E7681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M3.33203 10.0007H2.66536C2.31174 10.0007 1.9726 9.86018 1.72256 9.61013C1.47251 9.36008 1.33203 9.02094 1.33203 8.66732V2.66732C1.33203 2.3137 1.47251 1.97456 1.72256 1.72451C1.9726 1.47446 2.31174 1.33398 2.66536 1.33398H8.66536C9.01899 1.33398 9.35813 1.47446 9.60817 1.72451C9.85822 1.97456 9.9987 2.3137 9.9987 2.66732V3.33398' stroke='%236E7681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+[data-clipboard-hover="start"]::before {
+    left: auto;
+    right: calc(100% + var(--btcpay-space-s));
+}
+[data-clipboard-hover][data-clipboard-confirming]::before {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M13.7808 4.21934C13.9213 4.35997 14.0002 4.55059 14.0002 4.74934C14.0002 4.94809 13.9213 5.13871 13.7808 5.27934L6.53082 12.5293C6.3902 12.6698 6.19957 12.7487 6.00082 12.7487C5.80207 12.7487 5.61145 12.6698 5.47082 12.5293L2.22082 9.27934C2.08834 9.13717 2.01622 8.94912 2.01965 8.75482C2.02308 8.56052 2.10179 8.37513 2.2392 8.23772C2.37661 8.10031 2.562 8.02159 2.7563 8.01816C2.9506 8.01474 3.13865 8.08686 3.28082 8.21934L6.00082 10.9393L12.7208 4.21934C12.8614 4.07889 13.0521 4 13.2508 4C13.4496 4 13.6402 4.07889 13.7808 4.21934Z' fill='%2351B13E'/%3E%3C/svg%3E ");
+}
+[data-clipboard-hover]:hover::before {
+    opacity: 1;
+}
+.btn[data-clipboard],
+.btn[data-clipboard-target] {
+    color: var(--btcpay-body-text-muted);
+}
+.btn[data-clipboard]:hover,
+.btn[data-clipboard-target]:hover {
+    color: var(--btcpay-body-link-accent);
+}
+.btn[data-clipboard-confirming] {
+    color: var(--btcpay-success) !important;
+}

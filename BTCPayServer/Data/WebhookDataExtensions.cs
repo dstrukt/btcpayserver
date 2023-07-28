@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -29,11 +30,29 @@ namespace BTCPayServer.Data
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public WebhookDeliveryStatus Status { get; set; }
         public int? HttpCode { get; set; }
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
         public string ErrorMessage { get; set; }
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
         public byte[] Request { get; set; }
+        public void Prune()
+        {
+            var request = JObject.Parse(UTF8Encoding.UTF8.GetString(Request));
+            foreach (var prop in request.Properties().ToList())
+            {
+                if (prop.Name == "type")
+                    continue;
+                prop.Remove();
+            }
+            Request = UTF8Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
+        }
         public T ReadRequestAs<T>()
         {
             return JsonConvert.DeserializeObject<T>(UTF8Encoding.UTF8.GetString(Request), HostedServices.WebhookSender.DefaultSerializerSettings);
+        }
+
+        public bool IsPruned()
+        {
+            return ReadRequestAs<WebhookEvent>().IsPruned();
         }
     }
     public class WebhookBlob
@@ -48,19 +67,25 @@ namespace BTCPayServer.Data
     {
         public static WebhookBlob GetBlob(this WebhookData webhook)
         {
-            return JsonConvert.DeserializeObject<WebhookBlob>(Encoding.UTF8.GetString(webhook.Blob));
+            return webhook.HasTypedBlob<WebhookBlob>().GetBlob();
         }
         public static void SetBlob(this WebhookData webhook, WebhookBlob blob)
         {
-            webhook.Blob = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(blob));
+            webhook.HasTypedBlob<WebhookBlob>().SetBlob(blob);
         }
         public static WebhookDeliveryBlob GetBlob(this WebhookDeliveryData webhook)
         {
-            return JsonConvert.DeserializeObject<WebhookDeliveryBlob>(ZipUtils.Unzip(webhook.Blob), HostedServices.WebhookSender.DefaultSerializerSettings);
+            if (webhook.Blob is null)
+                return null;
+            else
+                return JsonConvert.DeserializeObject<WebhookDeliveryBlob>(webhook.Blob, HostedServices.WebhookSender.DefaultSerializerSettings);
         }
         public static void SetBlob(this WebhookDeliveryData webhook, WebhookDeliveryBlob blob)
         {
-            webhook.Blob = ZipUtils.Zip(JsonConvert.SerializeObject(blob, Formatting.None, HostedServices.WebhookSender.DefaultSerializerSettings));
+            if (blob is null)
+                webhook.Blob = null;
+            else
+                webhook.Blob = JsonConvert.SerializeObject(blob, HostedServices.WebhookSender.DefaultSerializerSettings);
         }
     }
 }

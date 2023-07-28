@@ -74,6 +74,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                     .Include(data => data.PullPaymentData)
                     .ThenInclude(data => data.StoreData)
                     .ThenInclude(data => data.UserStores)
+                    .ThenInclude(data => data.StoreRole)
                     .Where(data =>
                         payoutIds.Contains(data.Id) &&
                         data.State == PayoutState.AwaitingPayment &&
@@ -84,7 +85,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                     if (approvedStores.TryGetValue(payout.PullPaymentData.StoreId, out var value))
                         return value;
                     value = payout.PullPaymentData.StoreData.UserStores
-                        .Any(store => store.Role == StoreRoles.Owner && store.ApplicationUserId == userId);
+                        .Any(store => store.ApplicationUserId == userId && store.StoreRole.Permissions.Contains(Policies.CanModifyStoreSettings));
                     approvedStores.Add(payout.PullPaymentData.StoreId, value);
                     return value;
                 }).ToList();
@@ -257,13 +258,13 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                     });
             }
         }
-        
+
         public static async Task<ResultVM> TrypayBolt(
             ILightningClient lightningClient, PayoutBlob payoutBlob, PayoutData payoutData, BOLT11PaymentRequest bolt11PaymentRequest,
             PaymentMethodId pmi, CancellationToken cancellationToken)
         {
             var boltAmount = bolt11PaymentRequest.MinimumAmount.ToDecimal(LightMoneyUnit.BTC);
-            if (boltAmount != payoutBlob.CryptoAmount)
+            if (boltAmount > payoutBlob.CryptoAmount)
             {
 
                 payoutData.State = PayoutState.Cancelled;
@@ -276,15 +277,26 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                 };
             }
 
+            if (bolt11PaymentRequest.ExpiryDate < DateTimeOffset.Now)
+            {
+                payoutData.State = PayoutState.Cancelled;
+                return new ResultVM
+                {
+                    PayoutId = payoutData.Id,
+                    Result = PayResult.Error,
+                    Message = $"The BOLT11 invoice expiry date ({bolt11PaymentRequest.ExpiryDate}) has expired",
+                    Destination = payoutBlob.Destination
+                };
+            }
+
             var proofBlob = new PayoutLightningBlob() { PaymentHash = bolt11PaymentRequest.PaymentHash.ToString() };
             try
             {
                 var result = await lightningClient.Pay(bolt11PaymentRequest.ToString(),
                     new PayInvoiceParams()
                     {
-                        Amount = bolt11PaymentRequest.MinimumAmount == LightMoney.Zero
-                            ? new LightMoney((decimal)payoutBlob.CryptoAmount, LightMoneyUnit.BTC)
-                            : null
+                        // CLN does not support explicit amount param if it is the same as the invoice amount
+                        Amount = payoutBlob.CryptoAmount == bolt11PaymentRequest.MinimumAmount.ToDecimal(LightMoneyUnit.BTC)? null: new LightMoney((decimal)payoutBlob.CryptoAmount, LightMoneyUnit.BTC)
                     }, cancellationToken);
                 string message = null;
                 if (result.Result == PayResult.Ok)
@@ -303,7 +315,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                         // ignored
                     }
                 }
-                else if(result.Result == PayResult.Unknown)
+                else if (result.Result == PayResult.Unknown)
                 {
                     payoutData.State = PayoutState.InProgress;
                     message = "The payment has been initiated but is still in-flight.";

@@ -1,3 +1,4 @@
+#nullable enable
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ public interface ICustodian
      * Get the unique code that identifies this custodian.
      */
     string Code { get; }
-    
+
     string Name { get; }
 
     /**
@@ -20,7 +21,6 @@ public interface ICustodian
      */
     Task<Dictionary<string, decimal>> GetAssetBalancesAsync(JObject config, CancellationToken cancellationToken);
 
-    public Task<Form.Form> GetConfigForm(JObject config, string locale,
-        CancellationToken cancellationToken = default);
+    public Task<Form.Form> GetConfigForm(JObject config, CancellationToken cancellationToken = default);
 
 }

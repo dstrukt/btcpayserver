@@ -9,18 +9,21 @@ using BTCPayServer.Data;
 using BTCPayServer.PayoutProcessors;
 using BTCPayServer.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using PayoutProcessorData = BTCPayServer.Client.Models.PayoutProcessorData;
 using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Controllers.Greenfield
 {
     [ApiController]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+    [EnableCors(CorsPolicies.All)]
     public class GreenfieldPayoutProcessorsController : ControllerBase
     {
         private readonly IEnumerable<IPayoutProcessorFactory> _factories;
 
-        public GreenfieldPayoutProcessorsController(IEnumerable<IPayoutProcessorFactory>factories)
+        public GreenfieldPayoutProcessorsController(IEnumerable<IPayoutProcessorFactory> factories)
         {
             _factories = factories;
         }
@@ -39,5 +42,5 @@ namespace BTCPayServer.Controllers.Greenfield
         }
     }
 
-    
+
 }

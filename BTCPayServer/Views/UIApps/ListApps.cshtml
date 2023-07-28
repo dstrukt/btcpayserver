@@ -1,6 +1,8 @@
-﻿@using BTCPayServer.Services.Apps
+@using BTCPayServer.Services.Apps
 @using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Client
 @model ListAppsViewModel
+@inject AppService AppService
 @{
     ViewData.SetActivePage(AppsNavPages.Index, "Apps");
     var storeNameSortOrder = (string)ViewData["StoreNameSortOrder"];
@@ -16,8 +18,8 @@
     <h2 class="mb-0">
         @ViewData["Title"]
         <small>
-            <a href="https://docs.btcpayserver.org/Apps/" target="_blank" rel="noreferrer noopener">
-                <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+            <a href="https://docs.btcpayserver.org/Apps/" target="_blank" rel="noreferrer noopener" title="More information...">
+                <vc:icon symbol="info" />
             </a>
         </small>
     </h2>
@@ -78,32 +80,32 @@
                 {
                     <tr>
                         <td>
-                            @if (app.IsOwner)
-                            {
-                                <span><a asp-controller="UIStores" asp-action="GeneralSettings" asp-route-storeId="@app.StoreId">@app.StoreName</a></span>
-                            }
-                            else
-                            {
-                                <span>@app.StoreName</span>
-                            }
+                            <span permission="@Policies.CanModifyStoreSettings">
+                                <a asp-controller="UIStores" asp-action="GeneralSettings" asp-route-storeId="@app.StoreId">@app.StoreName</a>
+                            </span>
+
+                            <span not-permission="@Policies.CanModifyStoreSettings">@app.StoreName</span>
                         </td>
                         <td>@app.AppName</td>
                         <td>
-                            @typeof(AppType).DisplayName(app.AppType) 
-                            @if (app.AppType != AppType.Crowdfund.ToString())
-                            {
-                                <span>-</span> 
+                            @AppService.GetAvailableAppTypes()[app.AppType]
+                            @{
+                                var viewStyle = @app.ViewStyle;
                             }
-                            
-                            @app.ViewStyle
-                        </td>
-                        <td class="text-end">
-                            @if (app.IsOwner)
+                            @if (!string.IsNullOrEmpty(viewStyle))
                             {
+                                <span>-</span>
+                                <span>@viewStyle</span>
+                            }
+                        </td>
+                        <td class="text-end" permission="@Policies.CanModifyStoreSettings">
+                           
                                 <a asp-action="@app.UpdateAction" asp-controller="UIApps" asp-route-appId="@app.Id" asp-route-storeId="@app.StoreId">Settings</a>
                                 <span> - </span>
-                            }
-                            <a asp-action="DeleteApp" asp-route-appId="@app.Id" data-bs-toggle="modal" data-bs-target="#ConfirmModal" data-description="The app <strong>@app.AppName</strong> and its settings will be permanently deleted from your store <strong>@app.StoreName</strong>." data-confirm-input="DELETE">Delete</a>
+                            
+					        <a asp-action="DeleteApp" asp-route-appId="@app.Id" data-bs-toggle="modal" data-bs-target="#ConfirmModal" data-description="The app <strong>@Html.Encode(app.AppName)</strong> and its settings will be permanently deleted from your store <strong>@Html.Encode(app.StoreName)</strong>." data-confirm-input="DELETE">Delete</a>
+                        </td>
+                        <td class="text-end" no-permission="@Policies.CanModifyStoreSettings">
                         </td>
                     </tr>
                 }

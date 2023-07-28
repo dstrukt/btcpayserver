@@ -15,6 +15,7 @@ using BTCPayServer.Models.WalletViewModels;
 using BTCPayServer.Payments;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Rates;
+using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -26,21 +27,30 @@ namespace BTCPayServer.Controllers
     {
         private readonly ApplicationDbContextFactory _dbContextFactory;
         private readonly CurrencyNameTable _currencyNameTable;
+        private readonly DisplayFormatter _displayFormatter;
         private readonly PullPaymentHostedService _pullPaymentHostedService;
+        private readonly BTCPayNetworkProvider _networkProvider;
         private readonly BTCPayNetworkJsonSerializerSettings _serializerSettings;
         private readonly IEnumerable<IPayoutHandler> _payoutHandlers;
+        private readonly StoreRepository _storeRepository;
 
         public UIPullPaymentController(ApplicationDbContextFactory dbContextFactory,
             CurrencyNameTable currencyNameTable,
+            DisplayFormatter displayFormatter,
             PullPaymentHostedService pullPaymentHostedService,
+            BTCPayNetworkProvider networkProvider,
             BTCPayNetworkJsonSerializerSettings serializerSettings,
-            IEnumerable<IPayoutHandler> payoutHandlers)
+            IEnumerable<IPayoutHandler> payoutHandlers,
+            StoreRepository storeRepository)
         {
             _dbContextFactory = dbContextFactory;
             _currencyNameTable = currencyNameTable;
+            _displayFormatter = displayFormatter;
             _pullPaymentHostedService = pullPaymentHostedService;
             _serializerSettings = serializerSettings;
             _payoutHandlers = payoutHandlers;
+            _storeRepository = storeRepository;
+            _networkProvider = networkProvider;
         }
 
         [AllowAnonymous]
@@ -53,6 +63,11 @@ namespace BTCPayServer.Controllers
                 return NotFound();
 
             var blob = pp.GetBlob();
+            var store = await _storeRepository.FindStore(pp.StoreId);
+            if (store is null)
+                return NotFound();
+
+            var storeBlob = store.GetStoreBlob();
             var payouts = (await ctx.Payouts.GetPayoutInPeriod(pp)
                                            .OrderByDescending(o => o.Date)
                                            .ToListAsync())
@@ -66,14 +81,13 @@ namespace BTCPayServer.Controllers
             var totalPaid = payouts.Where(p => p.Entity.State != PayoutState.Cancelled).Select(p => p.Blob.Amount).Sum();
             var amountDue = blob.Limit - totalPaid;
 
-            ViewPullPaymentModel vm = new (pp, DateTimeOffset.UtcNow)
+            ViewPullPaymentModel vm = new(pp, DateTimeOffset.UtcNow)
             {
-                AmountFormatted = _currencyNameTable.FormatCurrency(blob.Limit, blob.Currency),
+                BrandColor = storeBlob.BrandColor,
+                CssFileId = storeBlob.CssFileId,
                 AmountCollected = totalPaid,
-                AmountCollectedFormatted = _currencyNameTable.FormatCurrency(totalPaid, blob.Currency),
                 AmountDue = amountDue,
                 ClaimedAmount = amountDue,
-                AmountDueFormatted = _currencyNameTable.FormatCurrency(amountDue, blob.Currency),
                 CurrencyData = cd,
                 StartDate = pp.StartDate,
                 LastRefreshed = DateTime.UtcNow,
@@ -82,7 +96,6 @@ namespace BTCPayServer.Controllers
                           {
                               Id = entity.Entity.Id,
                               Amount = entity.Blob.Amount,
-                              AmountFormatted = _currencyNameTable.FormatCurrency(entity.Blob.Amount, blob.Currency),
                               Currency = blob.Currency,
                               Status = entity.Entity.State,
                               Destination = entity.Blob.Destination,
@@ -92,6 +105,13 @@ namespace BTCPayServer.Controllers
                           }).ToList()
             };
             vm.IsPending &= vm.AmountDue > 0.0m;
+            
+            if (_pullPaymentHostedService.SupportsLNURL(blob))
+            {
+                var url = Url.Action("GetLNURLForPullPayment", "UILNURL", new { cryptoCode = _networkProvider.DefaultNetwork.CryptoCode, pullPaymentId = vm.Id }, Request.Scheme, Request.Host.ToString());
+                vm.LnurlEndpoint = url != null ? new Uri(url) : null;
+            }
+            
             return View(nameof(ViewPullPayment), vm);
         }
 
@@ -138,11 +158,11 @@ namespace BTCPayServer.Controllers
                 Email = null,
                 EmbeddedCSS = viewModel.EmbeddedCSS,
             };
-            
+
             pp.SetBlob(blob);
             ctx.PullPayments.Update(pp);
             await ctx.SaveChangesAsync();
-          
+
             TempData.SetStatusMessageModel(new StatusMessageModel
             {
                 Message = "Pull payment updated successfully",
@@ -179,21 +199,15 @@ namespace BTCPayServer.Controllers
                 ModelState.AddModelError(nameof(vm.Destination), destination.error ?? "Invalid destination with selected payment method");
                 return await ViewPullPayment(pullPaymentId);
             }
-
-            if (vm.ClaimedAmount == 0)
+            
+            var amtError = ClaimRequest.IsPayoutAmountOk(destination.destination, vm.ClaimedAmount == 0? null: vm.ClaimedAmount, paymentMethodId.CryptoCode, ppBlob.Currency);
+            if (amtError.error is not null)
             {
-                ModelState.AddModelError(nameof(vm.ClaimedAmount), "Amount is required");
+                ModelState.AddModelError(nameof(vm.ClaimedAmount), amtError.error );
             }
-            else
+            else if (amtError.amount is not null)
             {
-                var amount = ppBlob.Currency == "SATS" ? new Money(vm.ClaimedAmount, MoneyUnit.Satoshi).ToUnit(MoneyUnit.BTC) : vm.ClaimedAmount;
-                if (destination.destination.Amount != null && amount != destination.destination.Amount)
-                {
-                    var implied = _currencyNameTable.DisplayFormatCurrency(destination.destination.Amount.Value, paymentMethodId.CryptoCode);
-                    var provided = _currencyNameTable.DisplayFormatCurrency(vm.ClaimedAmount, ppBlob.Currency);
-                    ModelState.AddModelError(nameof(vm.ClaimedAmount), 
-                        $"Amount implied in destination ({implied}) does not match the payout amount provided ({provided}).");
-                }
+                vm.ClaimedAmount = amtError.amount.Value;
             }
 
             if (!ModelState.IsValid)
@@ -221,13 +235,13 @@ namespace BTCPayServer.Controllers
                 }
                 return await ViewPullPayment(pullPaymentId);
             }
-            
+
             TempData.SetStatusMessageModel(new StatusMessageModel
             {
-                Message = $"Your claim request of {_currencyNameTable.DisplayFormatCurrency(vm.ClaimedAmount, ppBlob.Currency)} to {vm.Destination} has been submitted and is awaiting {(result.PayoutData.State == PayoutState.AwaitingApproval? "approval": "payment")}.",
+                Message = $"Your claim request of {_displayFormatter.Currency(vm.ClaimedAmount, ppBlob.Currency, DisplayFormatter.CurrencyFormat.Symbol)} to {vm.Destination} has been submitted and is awaiting {(result.PayoutData.State == PayoutState.AwaitingApproval ? "approval" : "payment")}.",
                 Severity = StatusMessageModel.StatusSeverity.Success
             });
-            
+
             return RedirectToAction(nameof(ViewPullPayment), new { pullPaymentId });
         }
     }

@@ -23,8 +23,8 @@ namespace BTCPayServer.Models.InvoicingModels
         public bool Replaced { get; set; }
         public BitcoinLikePaymentData CryptoPaymentData { get; set; }
         public string AdditionalInformation { get; set; }
-
         public decimal NetworkFee { get; set; }
+        public string PaymentProof { get; set; }
     }
 
     public class OffChainPaymentViewModel
@@ -32,6 +32,8 @@ namespace BTCPayServer.Models.InvoicingModels
         public string Crypto { get; set; }
         public string BOLT11 { get; set; }
         public PaymentType Type { get; set; }
+        public string Amount { get; set; }
+        public string PaymentProof { get; set; }
     }
 
     public class InvoiceDetailsModel
@@ -124,7 +126,8 @@ namespace BTCPayServer.Models.InvoicingModels
         public DateTimeOffset MonitoringDate { get; internal set; }
         public List<Data.InvoiceEventData> Events { get; internal set; }
         public string NotificationEmail { get; internal set; }
-        public Dictionary<string, object> PosData { get; set; }
+        public Dictionary<string, object> Metadata { get; set; }
+        public Dictionary<string, object> AdditionalData { get; set; }
         public List<PaymentEntity> Payments { get; set; }
         public bool Archived { get; set; }
         public bool CanRefund { get; set; }

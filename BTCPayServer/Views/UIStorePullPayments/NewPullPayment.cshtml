@@ -85,8 +85,8 @@
                             <div class="accordion-body">
                                 <div class="form-group">
                                     <label asp-for="CustomCSSLink" class="form-label"></label>
-                                    <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener">
-                                        <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+                                    <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener" title="More information...">
+                                        <vc:icon symbol="info" />
                                     </a>
                                     <input asp-for="CustomCSSLink" class="form-control"/>
                                     <span asp-validation-for="CustomCSSLink" class="text-danger"></span>
@@ -111,7 +111,7 @@
                                 <div class="form-group">
                                     <label asp-for="BOLT11Expiration" class="form-label"></label>
                                     <div class="input-group">
-                                        <input inputmode="numeric" asp-for="BOLT11Expiration" class="form-control" style="max-width:10ch;"/>
+                                        <input inputmode="numeric" asp-for="BOLT11Expiration" class="form-control" style="max-width:12ch;"/>
                                         <span class="input-group-text">days</span>
                                     </div>
                                     <span asp-validation-for="BOLT11Expiration" class="text-danger"></span>

@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client.Models;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
@@ -15,8 +15,6 @@ using LNURL;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NBitcoin;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Data.Payouts.LightningLike
 {
@@ -44,11 +42,11 @@ namespace BTCPayServer.Data.Payouts.LightningLike
 
         public bool CanHandle(PaymentMethodId paymentMethod)
         {
-            return (paymentMethod.PaymentType == LightningPaymentType.Instance  ||  paymentMethod.PaymentType == LNURLPayPaymentType.Instance ) &&
+            return (paymentMethod.PaymentType == LightningPaymentType.Instance || paymentMethod.PaymentType == LNURLPayPaymentType.Instance) &&
                    _btcPayNetworkProvider.GetNetwork<BTCPayNetwork>(paymentMethod.CryptoCode)?.SupportLightning is true;
         }
 
-        public Task TrackClaim(PaymentMethodId paymentMethodId, IClaimDestination claimDestination)
+        public Task TrackClaim(ClaimRequest claimRequest, PayoutData payoutData)
         {
             return Task.CompletedTask;
         }
@@ -190,6 +188,6 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             return Task.FromResult<IActionResult>(new RedirectToActionResult("ConfirmLightningPayout",
                 "UILightningLikePayout", new { cryptoCode = paymentMethodId.CryptoCode, payoutIds }));
         }
-        
+
     }
 }

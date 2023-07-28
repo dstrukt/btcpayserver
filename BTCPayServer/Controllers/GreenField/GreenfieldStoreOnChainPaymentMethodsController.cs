@@ -7,12 +7,14 @@ using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
+using BTCPayServer.Events;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Payments;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using NBitcoin;
 using NBXplorer.DerivationStrategy;
@@ -23,6 +25,7 @@ namespace BTCPayServer.Controllers.Greenfield
 {
     [ApiController]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+    [EnableCors(CorsPolicies.All)]
     public partial class GreenfieldStoreOnChainPaymentMethodsController : ControllerBase
     {
         private StoreData Store => HttpContext.GetStoreData();
@@ -34,6 +37,7 @@ namespace BTCPayServer.Controllers.Greenfield
         private readonly BTCPayWalletProvider _walletProvider;
         private readonly IAuthorizationService _authorizationService;
         private readonly ExplorerClientProvider _explorerClientProvider;
+        private readonly EventAggregator _eventAggregator;
 
         public GreenfieldStoreOnChainPaymentMethodsController(
             StoreRepository storeRepository,
@@ -41,13 +45,15 @@ namespace BTCPayServer.Controllers.Greenfield
             BTCPayWalletProvider walletProvider,
             IAuthorizationService authorizationService,
             ExplorerClientProvider explorerClientProvider,
-            PoliciesSettings policiesSettings)
+            PoliciesSettings policiesSettings,
+            EventAggregator eventAggregator)
         {
             _storeRepository = storeRepository;
             _btcPayNetworkProvider = btcPayNetworkProvider;
             _walletProvider = walletProvider;
             _authorizationService = authorizationService;
             _explorerClientProvider = explorerClientProvider;
+            _eventAggregator = eventAggregator;
             PoliciesSettings = policiesSettings;
         }
 
@@ -208,6 +214,10 @@ namespace BTCPayServer.Controllers.Greenfield
             var store = Store;
             store.SetSupportedPaymentMethod(id, null);
             await _storeRepository.UpdateStore(store);
+            _eventAggregator.Publish(new WalletChangedEvent()
+            {
+                WalletId = new WalletId(storeId, cryptoCode)
+            });
             return Ok();
         }
 
@@ -254,6 +264,10 @@ namespace BTCPayServer.Controllers.Greenfield
                 storeBlob.SetExcluded(id, !request.Enabled);
                 store.SetStoreBlob(storeBlob);
                 await _storeRepository.UpdateStore(store);
+                _eventAggregator.Publish(new WalletChangedEvent()
+                {
+                    WalletId = new WalletId(storeId, cryptoCode)
+                });
                 return Ok(GetExistingBtcLikePaymentMethod(cryptoCode, store));
             }
             catch

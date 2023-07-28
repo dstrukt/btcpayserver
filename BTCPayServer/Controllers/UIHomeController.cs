@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -9,29 +8,18 @@ using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Client;
-using BTCPayServer.Components.StoreSelector;
 using BTCPayServer.Data;
 using BTCPayServer.Filters;
-using BTCPayServer.HostedServices;
 using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
-using BTCPayServer.Payments;
-using BTCPayServer.Payments.Lightning;
-using BTCPayServer.Security;
 using BTCPayServer.Services;
-using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Stores;
-using ExchangeSharp;
-using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
-using NBitcoin;
-using NBitcoin.Payment;
-using NBitpayClient;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -44,6 +32,9 @@ namespace BTCPayServer.Controllers
         private readonly BTCPayNetworkProvider _networkProvider;
         private IHttpClientFactory HttpClientFactory { get; }
         private SignInManager<ApplicationUser> SignInManager { get; }
+
+        private IFileProvider _WebRootFileProvider;
+
         public LanguageService LanguageService { get; }
 
         public UIHomeController(IHttpClientFactory httpClientFactory,
@@ -51,6 +42,7 @@ namespace BTCPayServer.Controllers
                               LanguageService languageService,
                               StoreRepository storeRepository,
                               BTCPayNetworkProvider networkProvider,
+                              IWebHostEnvironment environment,
                               SignInManager<ApplicationUser> signInManager)
         {
             _theme = theme;
@@ -59,6 +51,7 @@ namespace BTCPayServer.Controllers
             _networkProvider = networkProvider;
             _storeRepository = storeRepository;
             SignInManager = signInManager;
+            _WebRootFileProvider = environment.WebRootFileProvider;
         }
 
         [HttpGet("home")]
@@ -86,23 +79,14 @@ namespace BTCPayServer.Controllers
                     var store = await _storeRepository.FindStore(storeId, userId);
                     if (store != null)
                     {
-                        return RedirectToStore(store);
+                        return RedirectToStore(userId, store);
                     }
                 }
-                
+
                 var stores = await _storeRepository.GetStoresByUserId(userId);
-                if (stores.Any())
-                {
-                    // redirect to first store
-                    return RedirectToStore(stores.First());
-                }
-                
-                var vm = new HomeViewModel
-                {
-                    HasStore = stores.Any()
-                };
-                
-                return View("Home", vm);
+                return stores.Any()
+                    ? RedirectToStore(userId, stores.First())
+                    : RedirectToAction(nameof(UIUserStoresController.CreateStore), "UIUserStores");
             }
 
             return Challenge();
@@ -120,6 +104,45 @@ namespace BTCPayServer.Controllers
         public IActionResult Permissions()
         {
             return Json(Client.Models.PermissionMetadata.PermissionNodes, new JsonSerializerSettings { Formatting = Formatting.Indented });
+        }
+        [Route("misc/translations/{resource}/{lang}")]
+        [AllowAnonymous]
+        public IActionResult GetTranslations(string resource, string lang)
+        {
+            string path;
+            if (resource == "checkout-v1")
+                path = "locales";
+            else if (resource == "checkout-v2")
+                path = "locales/checkout";
+            else
+                return NotFound();
+            var enLang = Lang(path + "/en.json");
+            var en = (enLang as JsonResult)?.Value as JObject;
+            if (en is null || lang == "en" || lang == "en-US")
+                return enLang;
+            lang = LanguageService.FindLanguage(lang)?.Code;
+            if (lang is null)
+                return enLang;
+            var oLang = Lang(path + $"/{lang}.json");
+            var o = (oLang as JsonResult)?.Value as JObject;
+            if (o is null)
+                return enLang;
+            en.Merge(o);
+            return Json(en);
+        }
+
+        private IActionResult Lang(string path)
+        {
+            var fi = _WebRootFileProvider.GetFileInfo(path);
+            try
+            {
+                using var fs = fi.CreateReadStream();
+                return Json(JObject.Load(new JsonTextReader(new StreamReader(fs, leaveOpen: true))));
+            }
+            catch
+            {
+                return NotFound();
+            }
         }
 
         [Route("swagger/v1/swagger.json")]
@@ -175,10 +198,10 @@ namespace BTCPayServer.Controllers
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
 
-        public RedirectToActionResult RedirectToStore(StoreData store)
+        public RedirectToActionResult RedirectToStore(string userId, StoreData store)
         {
-            return store.Role == StoreRoles.Owner 
-                ? RedirectToAction("Dashboard", "UIStores", new { storeId = store.Id }) 
+            return store.HasPermission(userId, Policies.CanModifyStoreSettings)
+                ? RedirectToAction("Dashboard", "UIStores", new { storeId = store.Id })
                 : RedirectToAction("ListInvoices", "UIInvoice", new { storeId = store.Id });
         }
     }

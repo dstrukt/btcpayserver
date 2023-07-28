@@ -72,11 +72,10 @@ namespace BTCPayServer.Components.MainNav
                 vm.Apps = apps.Select(a => new StoreApp
                 {
                     Id = a.Id,
-                    IsOwner = a.IsOwner,
                     AppName = a.AppName,
-                    AppType = Enum.Parse<AppType>(a.AppType)
+                    AppType = a.AppType
                 }).ToList();
-                
+
                 if (PoliciesSettings.Experimental)
                 {
                     // Custodian Accounts

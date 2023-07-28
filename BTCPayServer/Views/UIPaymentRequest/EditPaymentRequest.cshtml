@@ -1,11 +1,14 @@
 @using BTCPayServer.Services.PaymentRequests
 @using System.Globalization
+@using BTCPayServer.Forms
 @using BTCPayServer.Services.Stores
 @using BTCPayServer.TagHelpers
 @using Microsoft.AspNetCore.Mvc.TagHelpers
+@inject FormDataService FormDataService
 @model BTCPayServer.Models.PaymentRequestViewModels.UpdatePaymentRequestViewModel
 @{
-    var checkoutFormOptions = CheckoutFormSelectList.WithSelected(Model.FormId);
+    
+    var checkoutFormOptions = await FormDataService.GetSelect(Model.StoreId, Model.FormId);
 
     ViewData.SetActivePage(PaymentRequestsNavPages.Create, $"{(string.IsNullOrEmpty(Model.Id) ? "Create" : "Edit")} Payment Request", Model.Id);
 }
@@ -83,7 +86,7 @@
                 <label asp-for="Email" class="form-label"></label>
                 <input type="email" asp-for="Email" placeholder="Firstname Lastname <email@example.com>" class="form-control" />
                 <span asp-validation-for="Email" class="text-danger"></span>
-                <div id="PaymentRequestEmailHelpBlock" class="form-text">Receive updates for this payment request.</div>
+                <div id="PaymentRequestEmailHelpBlock" class="form-text">The recipient's email. This will send notification mails to the recipient, as configured by the <a asp-action="StoreEmails" asp-controller="UIStores" asp-route-storeId="@Model.StoreId">email rules</a>, and include the email in the invoice export data.</div>
             </div>
             <div class="form-group">
                 <label asp-for="FormId" class="form-label"></label>
@@ -126,8 +129,8 @@
                             <div class="accordion-body">
                                 <div class="form-group">
                                     <label asp-for="CustomCSSLink" class="form-label"></label>
-                                    <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener">
-                                        <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+                                    <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener" title="More information...">
+                                        <vc:icon symbol="info" />
                                     </a>
                                     <input asp-for="CustomCSSLink" class="form-control" />
                                     <span asp-validation-for="CustomCSSLink" class="text-danger"></span>

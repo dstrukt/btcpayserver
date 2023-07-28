@@ -9,6 +9,7 @@ using BTCPayServer.JsonConverters;
 using BTCPayServer.Models;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
+using BTCPayServer.Payments.Lightning;
 using NBitcoin;
 using NBitcoin.DataEncoders;
 using NBitpayClient;
@@ -29,7 +30,7 @@ namespace BTCPayServer.Services.Invoices
             [JsonExtensionData] public Dictionary<string, JToken> AdditionalData { get; set; }
         }
     }
-    public class InvoiceMetadata
+    public class InvoiceMetadata : IHasAdditionalData
     {
         public static readonly JsonSerializer MetadataSerializer;
         static InvoiceMetadata()
@@ -44,164 +45,166 @@ namespace BTCPayServer.Services.Invoices
         [JsonIgnore]
         public string OrderId
         {
-            get => GetMetadata<string>("orderId");
-            set => SetMetadata("orderId", value);
+            get => this.GetAdditionalData<string>("orderId");
+            set => this.SetAdditionalData("orderId", value);
         }
         [JsonIgnore]
         public string OrderUrl
         {
-            get => GetMetadata<string>("orderUrl");
-            set => SetMetadata("orderUrl", value);
+            get => this.GetAdditionalData<string>("orderUrl");
+            set => this.SetAdditionalData("orderUrl", value);
         }
         [JsonIgnore]
         public string PaymentRequestId
         {
-            get => GetMetadata<string>("paymentRequestId");
-            set => SetMetadata("paymentRequestId", value);
+            get => this.GetAdditionalData<string>("paymentRequestId");
+            set => this.SetAdditionalData("paymentRequestId", value);
         }
         [JsonIgnore]
         public string BuyerName
         {
-            get => GetMetadata<string>("buyerName");
-            set => SetMetadata("buyerName", value);
+            get => this.GetAdditionalData<string>("buyerName");
+            set => this.SetAdditionalData("buyerName", value);
         }
         [JsonIgnore]
         public string BuyerEmail
         {
-            get => GetMetadata<string>("buyerEmail");
-            set => SetMetadata("buyerEmail", value);
+            get => this.GetAdditionalData<string>("buyerEmail");
+            set => this.SetAdditionalData("buyerEmail", value);
         }
         [JsonIgnore]
         public string BuyerCountry
         {
-            get => GetMetadata<string>("buyerCountry");
-            set => SetMetadata("buyerCountry", value);
+            get => this.GetAdditionalData<string>("buyerCountry");
+            set => this.SetAdditionalData("buyerCountry", value);
         }
         [JsonIgnore]
         public string BuyerZip
         {
-            get => GetMetadata<string>("buyerZip");
-            set => SetMetadata("buyerZip", value);
+            get => this.GetAdditionalData<string>("buyerZip");
+            set => this.SetAdditionalData("buyerZip", value);
         }
         [JsonIgnore]
         public string BuyerState
         {
-            get => GetMetadata<string>("buyerState");
-            set => SetMetadata("buyerState", value);
+            get => this.GetAdditionalData<string>("buyerState");
+            set => this.SetAdditionalData("buyerState", value);
         }
         [JsonIgnore]
         public string BuyerCity
         {
-            get => GetMetadata<string>("buyerCity");
-            set => SetMetadata("buyerCity", value);
+            get => this.GetAdditionalData<string>("buyerCity");
+            set => this.SetAdditionalData("buyerCity", value);
         }
         [JsonIgnore]
         public string BuyerAddress2
         {
-            get => GetMetadata<string>("buyerAddress2");
-            set => SetMetadata("buyerAddress2", value);
+            get => this.GetAdditionalData<string>("buyerAddress2");
+            set => this.SetAdditionalData("buyerAddress2", value);
         }
         [JsonIgnore]
         public string BuyerAddress1
         {
-            get => GetMetadata<string>("buyerAddress1");
-            set => SetMetadata("buyerAddress1", value);
+            get => this.GetAdditionalData<string>("buyerAddress1");
+            set => this.SetAdditionalData("buyerAddress1", value);
         }
         [JsonIgnore]
         public string BuyerPhone
         {
-            get => GetMetadata<string>("buyerPhone");
-            set => SetMetadata("buyerPhone", value);
+            get => this.GetAdditionalData<string>("buyerPhone");
+            set => this.SetAdditionalData("buyerPhone", value);
         }
         [JsonIgnore]
         public string ItemDesc
         {
-            get => GetMetadata<string>("itemDesc");
-            set => SetMetadata("itemDesc", value);
+            get => this.GetAdditionalData<string>("itemDesc");
+            set => this.SetAdditionalData("itemDesc", value);
         }
         [JsonIgnore]
         public string ItemCode
         {
-            get => GetMetadata<string>("itemCode");
-            set => SetMetadata("itemCode", value);
+            get => this.GetAdditionalData<string>("itemCode");
+            set => this.SetAdditionalData("itemCode", value);
         }
         [JsonIgnore]
         public bool? Physical
         {
-            get => GetMetadata<bool?>("physical");
-            set => SetMetadata("physical", value);
+            get => this.GetAdditionalData<bool?>("physical");
+            set => this.SetAdditionalData("physical", value);
         }
         [JsonIgnore]
         public decimal? TaxIncluded
         {
-            get => GetMetadata<decimal?>("taxIncluded");
-            set => SetMetadata("taxIncluded", value);
+            get => this.GetAdditionalData<decimal?>("taxIncluded");
+            set => this.SetAdditionalData("taxIncluded", value);
         }
+
+        /// <summary>
+        /// posData is a field that may be treated differently for presentation and in some legacy API
+        /// Before, it was a string field which could contain some JSON data inside.
+        /// For making it easier to query on the DB, and for logic using PosData in the code, we decided to
+        /// parse it as a JObject.
+        ///
+        /// This property will return the posData as a JObject, even if it's a Json string inside.
+        /// </summary>
         [JsonIgnore]
-        public string PosData
+        public JObject PosData
         {
-            get => GetMetadata<string>("posData");
-            set => SetMetadata("posData", value);
+            get
+            {
+                if (AdditionalData == null || !(AdditionalData.TryGetValue("posData", out var jt) is true))
+                    return default;
+                if (jt.Type == JTokenType.Null)
+                    return default;
+                if (jt.Type == JTokenType.String)
+                    try
+                    {
+                        return JObject.Parse(jt.Value<string>());
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                if (jt.Type == JTokenType.Object)
+                    return (JObject)jt;
+                return null;
+            }
+
+            set
+            {
+                this.SetAdditionalData<JObject>("posData", value);
+            }
+        }
+
+        /// <summary>
+        /// See comments on <see cref="PosData"/>
+        /// </summary>
+        [JsonIgnore]
+        public string PosDataLegacy
+        {
+            get
+            {
+                return this.GetAdditionalData<string>("posData");
+            }
+
+            set
+            {
+                if (value != null)
+                {
+                    try
+                    {
+                        PosData = JObject.Parse(value);
+                        return;
+                    }
+                    catch
+                    {
+                    }
+                }
+                this.SetAdditionalData<string>("posData", value);
+            }
         }
         [JsonExtensionData]
         public IDictionary<string, JToken> AdditionalData { get; set; }
-
-        public T GetMetadata<T>(string propName)
-        {
-            if (AdditionalData == null || !(AdditionalData.TryGetValue(propName, out var jt) is true))
-                return default;
-            if (jt.Type == JTokenType.Null)
-                return default;
-            if (typeof(T) == typeof(string))
-            {
-                return (T)(object)jt.ToString();
-            }
-
-            try
-            {
-                return jt.Value<T>();
-            }
-            catch (Exception)
-            {
-                return default;
-            }
-        }
-        public void SetMetadata<T>(string propName, T value)
-        {
-            JToken data;
-            if (typeof(T) == typeof(string) && value is string v)
-            {
-                data = new JValue(v);
-                AdditionalData ??= new Dictionary<string, JToken>();
-                AdditionalData.AddOrReplace(propName, data);
-                return;
-            }
-            if (value is null)
-            {
-                AdditionalData?.Remove(propName);
-            }
-            else
-            {
-                try
-                {
-                    if (value is string s)
-                    {
-                        data = JToken.Parse(s);
-                    }
-                    else
-                    {
-                        data = JToken.FromObject(value);
-                    }
-                }
-                catch (Exception)
-                {
-                    data = JToken.FromObject(value);
-                }
-
-                AdditionalData ??= new Dictionary<string, JToken>();
-                AdditionalData.AddOrReplace(propName, data);
-            }
-        }
 
         public static InvoiceMetadata FromJObject(JObject jObject)
         {
@@ -213,7 +216,7 @@ namespace BTCPayServer.Services.Invoices
         }
     }
 
-    public class InvoiceEntity
+    public class InvoiceEntity : IHasAdditionalData
     {
         class BuyerInformation
         {
@@ -269,6 +272,7 @@ namespace BTCPayServer.Services.Invoices
         public SpeedPolicy SpeedPolicy { get; set; }
         public string DefaultLanguage { get; set; }
         [Obsolete("Use GetPaymentMethod(network) instead")]
+        [JsonConverter(typeof(NumericStringJsonConverter))]
         public decimal Rate { get; set; }
         public DateTimeOffset InvoiceTime { get; set; }
         public DateTimeOffset ExpirationTime { get; set; }
@@ -277,7 +281,7 @@ namespace BTCPayServer.Services.Invoices
         public string DepositAddress { get; set; }
 
         public InvoiceMetadata Metadata { get; set; }
-
+        [JsonConverter(typeof(NumericStringJsonConverter))]
         public decimal Price { get; set; }
         public string Currency { get; set; }
         public string DefaultPaymentMethod { get; set; }
@@ -301,11 +305,35 @@ namespace BTCPayServer.Services.Invoices
                                                   .Select(t => t.Substring(prefix.Length)).ToArray();
         }
 
-        [Obsolete("Use GetDerivationStrategies instead")]
-        public string DerivationStrategy { get; set; }
-
         [Obsolete("Use GetPaymentMethodFactories() instead")]
-        public string DerivationStrategies { get; set; }
+        [JsonIgnore]
+        public JObject DerivationStrategies
+        {
+            get
+            {
+                if (AdditionalData is null || AdditionalData.TryGetValue("derivationStrategies", out var v) is not true)
+                {
+                    if (AdditionalData is null || AdditionalData.TryGetValue("derivationStrategy", out v) is not true || Networks.BTC is null)
+                        return null;
+                    // This code is very unlikely called. "derivationStrategy" is an old property that was present in 2018.
+                    // And this property is only read for unexpired invoices with lazy payments (Feature unavailable then)
+                    var settings = DerivationSchemeSettings.Parse(v.ToString(), Networks.BTC);
+                    settings.AccountOriginal = v.ToString();
+                    settings.Source = "ManualDerivationScheme";
+                    return JObject.Parse(settings.ToJson());
+                }
+                if (v.Type == JTokenType.String)
+                    return JObject.Parse(v.Value<string>());
+                if (v.Type == JTokenType.Object)
+                    return (JObject)v;
+                return null;
+            }
+            set
+            {
+                this.SetAdditionalData("derivationStrategies", value);
+                this.SetAdditionalData<string>("derivationStrategy", null);
+            }
+        }
         public IEnumerable<T> GetSupportedPaymentMethod<T>(PaymentMethodId paymentMethodId) where T : ISupportedPaymentMethod
         {
             return
@@ -320,11 +348,9 @@ namespace BTCPayServer.Services.Invoices
         public IEnumerable<ISupportedPaymentMethod> GetSupportedPaymentMethod()
         {
 #pragma warning disable CS0618
-            bool btcReturned = false;
-            if (!string.IsNullOrEmpty(DerivationStrategies))
+            if (DerivationStrategies != null)
             {
-                JObject strategies = JObject.Parse(DerivationStrategies);
-                foreach (var strat in strategies.Properties())
+                foreach (var strat in DerivationStrategies.Properties())
                 {
                     if (!PaymentMethodId.TryParse(strat.Name, out var paymentMethodId))
                     {
@@ -333,18 +359,8 @@ namespace BTCPayServer.Services.Invoices
                     var network = Networks.GetNetwork<BTCPayNetworkBase>(paymentMethodId.CryptoCode);
                     if (network != null)
                     {
-                        if (network == Networks.BTC && paymentMethodId.PaymentType == PaymentTypes.BTCLike)
-                            btcReturned = true;
                         yield return paymentMethodId.PaymentType.DeserializeSupportedPaymentMethod(network, strat.Value);
                     }
-                }
-            }
-
-            if (!btcReturned && !string.IsNullOrEmpty(DerivationStrategy))
-            {
-                if (Networks.BTC != null)
-                {
-                    yield return BTCPayServer.DerivationSchemeSettings.Parse(DerivationStrategy, Networks.BTC);
                 }
             }
 #pragma warning restore CS0618
@@ -357,12 +373,86 @@ namespace BTCPayServer.Services.Invoices
             {
                 obj.Add(strat.PaymentId.ToString(), PaymentMethodExtensions.Serialize(strat));
 #pragma warning disable CS0618
-                // This field should eventually disappear
-                DerivationStrategy = null;
             }
-            DerivationStrategies = JsonConvert.SerializeObject(obj);
+            DerivationStrategies = obj;
 #pragma warning restore CS0618
         }
+
+        [JsonIgnore]
+        public Dictionary<string, decimal> Rates
+        {
+            get;
+            private set;
+        }
+        public void UpdateTotals()
+        {
+            Rates = new Dictionary<string, decimal>();
+            foreach (var p in GetPaymentMethods())
+            {
+                Rates.TryAdd(p.Currency, p.Rate);
+            }
+            PaidAmount = new Amounts()
+            {
+                Currency = Currency
+            };
+            foreach (var payment in GetPayments(false))
+            {
+                payment.Rate = Rates[payment.Currency];
+                payment.InvoiceEntity = this;
+                payment.UpdateAmounts();
+                if (payment.Accounted)
+                {
+                    PaidAmount.Gross += payment.InvoicePaidAmount.Gross;
+                    PaidAmount.Net += payment.InvoicePaidAmount.Net;
+                }
+            }
+            NetDue = Price - PaidAmount.Net;
+            MinimumNetDue = Price * (1.0m - ((decimal)PaymentTolerance / 100.0m)) - PaidAmount.Net;
+            PaidFee = PaidAmount.Gross - PaidAmount.Net;
+            if (NetDue < 0.0m)
+            {
+                // If any payment method exactly pay the invoice, the overpayment is caused by
+                // rounding limitation of the underlying payment method.
+                // Document this overpayment as dust, and set the net due to 0
+                if (GetPaymentMethods().Any(p => p.Calculate().DueUncapped == 0.0m))
+                {
+                    Dust = -NetDue;
+                    NetDue = 0.0m;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Overpaid amount caused by payment method
+        /// Example: If you need to pay 124.4 sats, the on-chain payment need to be technically rounded to 125 sats, the extra 0.6 sats shouldn't be considered an over payment.
+        /// </summary>
+        [JsonIgnore]
+        public decimal Dust { get; set; }
+
+        /// <summary>
+        /// The due to consider the invoice paid (can be negative if over payment)
+        /// </summary>
+        [JsonIgnore]
+        public decimal NetDue
+        {
+            get;
+            set;
+        }
+        /// <summary>
+        /// Minumum due to consider the invoice paid (can be negative if overpaid)
+        /// </summary>
+        [JsonIgnore]
+        public decimal MinimumNetDue { get; set; }
+        public bool IsUnderPaid => MinimumNetDue > 0;
+        [JsonIgnore]
+        public bool IsOverPaid => NetDue < 0;
+
+
+        /// <summary>
+        /// Total of network fee paid by accounted payments
+        /// </summary>
+        [JsonIgnore]
+        public decimal PaidFee { get; set; }
 
         [JsonIgnore]
         public InvoiceStatusLegacy Status { get; set; }
@@ -385,7 +475,7 @@ namespace BTCPayServer.Services.Invoices
         }
         public List<PaymentEntity> GetPayments(string cryptoCode, bool accountedOnly)
         {
-            return GetPayments(accountedOnly).Where(p => p.CryptoCode == cryptoCode).ToList();
+            return GetPayments(accountedOnly).Where(p => p.Currency == cryptoCode).ToList();
         }
         public List<PaymentEntity> GetPayments(BTCPayNetworkBase network, bool accountedOnly)
         {
@@ -395,6 +485,8 @@ namespace BTCPayServer.Services.Invoices
         // public bool Refundable { get; set; }
         public bool? RequiresRefundEmail { get; set; } = null;
         public string RefundMail { get; set; }
+
+        public string StoreSupportUrl { get; set; }
         [JsonProperty("redirectURL")]
         public string RedirectURLTemplate { get; set; }
 
@@ -442,12 +534,13 @@ namespace BTCPayServer.Services.Invoices
         public InvoiceType Type { get; set; }
 
         public List<RefundData> Refunds { get; set; }
-        
+
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
         public InvoiceDataBase.ReceiptOptions ReceiptOptions { get; set; }
 
         [JsonConverter(typeof(StringEnumConverter))]
         public CheckoutType? CheckoutType { get; set; }
+        public bool LazyPaymentMethods { get; set; }
 
         public bool IsExpired()
         {
@@ -462,7 +555,7 @@ namespace BTCPayServer.Services.Invoices
                 Id = Id,
                 StoreId = StoreId,
                 OrderId = Metadata.OrderId,
-                PosData = Metadata.PosData,
+                PosData = Metadata.PosDataLegacy,
                 CurrentTime = DateTimeOffset.UtcNow,
                 InvoiceTime = InvoiceTime,
                 ExpirationTime = ExpirationTime,
@@ -533,17 +626,17 @@ namespace BTCPayServer.Services.Invoices
                 if (details?.Activated is true)
                 {
 
-                    paymentId.PaymentType.PopulateCryptoInfo(info, cryptoInfo, ServerUrl);
+                    paymentId.PaymentType.PopulateCryptoInfo(this, info, cryptoInfo, ServerUrl);
                     if (paymentId.PaymentType == PaymentTypes.BTCLike)
                     {
                         var minerInfo = new MinerFeeInfo();
-                        minerInfo.TotalFee = accounting.NetworkFee.Satoshi;
+                        minerInfo.TotalFee = accounting.ToSmallestUnit(accounting.NetworkFee);
                         minerInfo.SatoshiPerBytes = ((BitcoinLikeOnChainPaymentMethod)details).FeeRate
                             .GetFee(1).Satoshi;
                         dto.MinerFees.TryAdd(cryptoInfo.CryptoCode, minerInfo);
 
 #pragma warning disable 618
-                        if (info.CryptoCode == "BTC")
+                        if (info.Currency == "BTC")
                         {
                             dto.BTCPrice = cryptoInfo.Price;
                             dto.Rate = cryptoInfo.Rate;
@@ -559,8 +652,8 @@ namespace BTCPayServer.Services.Invoices
 
                 dto.CryptoInfo.Add(cryptoInfo);
                 dto.PaymentCodes.Add(paymentId.ToString(), cryptoInfo.PaymentUrls);
-                dto.PaymentSubtotals.Add(paymentId.ToString(), subtotalPrice.Satoshi);
-                dto.PaymentTotals.Add(paymentId.ToString(), accounting.TotalDue.Satoshi);
+                dto.PaymentSubtotals.Add(paymentId.ToString(), accounting.ToSmallestUnit(subtotalPrice));
+                dto.PaymentTotals.Add(paymentId.ToString(), accounting.ToSmallestUnit(accounting.TotalDue));
                 dto.SupportedTransactionCurrencies.TryAdd(cryptoCode, new InvoiceSupportedTransactionCurrency()
                 {
                     Enabled = true
@@ -623,12 +716,12 @@ namespace BTCPayServer.Services.Invoices
                     {
                         continue;
                     }
-                    r.CryptoCode = paymentMethodId.CryptoCode;
+                    r.Currency = paymentMethodId.CryptoCode;
                     r.PaymentType = paymentMethodId.PaymentType.ToString();
                     r.ParentEntity = this;
                     if (Networks != null)
                     {
-                        r.Network = Networks.GetNetwork<BTCPayNetworkBase>(r.CryptoCode);
+                        r.Network = Networks.GetNetwork<BTCPayNetworkBase>(r.Currency);
                         if (r.Network is null)
                             continue;
                     }
@@ -654,7 +747,7 @@ namespace BTCPayServer.Services.Invoices
             foreach (var v in paymentMethods)
             {
                 var clone = serializer.ToObject<PaymentMethod>(serializer.ToString(v));
-                clone.CryptoCode = null;
+                clone.Currency = null;
                 clone.PaymentType = null;
                 obj.Add(new JProperty(v.GetId().ToString(), JObject.Parse(serializer.ToString(clone))));
             }
@@ -664,6 +757,7 @@ namespace BTCPayServer.Services.Invoices
                 cryptoData.ParentEntity = this;
             }
 #pragma warning restore CS0618
+            UpdateTotals();
         }
 
         public InvoiceState GetInvoiceState()
@@ -709,7 +803,7 @@ namespace BTCPayServer.Services.Invoices
                     token is JValue val &&
                     val.Type == JTokenType.String)
                 {
-                    wellknown.PosData = val.Value<string>();
+                    wellknown.PosDataLegacy = val.Value<string>();
                 }
                 if (AdditionalData.TryGetValue("orderId", out var token2) &&
                     token2 is JValue val2 &&
@@ -731,6 +825,8 @@ namespace BTCPayServer.Services.Invoices
         {
             return Type == InvoiceType.TopUp && Price == 0.0m;
         }
+
+        public Amounts PaidAmount { get; set; }
     }
 
     public enum InvoiceStatusLegacy
@@ -818,20 +914,13 @@ namespace BTCPayServer.Services.Invoices
 
         public bool CanMarkComplete()
         {
-            return (Status == InvoiceStatusLegacy.Paid) ||
-                   (Status == InvoiceStatusLegacy.New) ||
-                   ((Status == InvoiceStatusLegacy.New || Status == InvoiceStatusLegacy.Expired) && ExceptionStatus == InvoiceExceptionStatus.PaidPartial) ||
-                   ((Status == InvoiceStatusLegacy.New || Status == InvoiceStatusLegacy.Expired) && ExceptionStatus == InvoiceExceptionStatus.PaidLate) ||
-                   (Status != InvoiceStatusLegacy.Complete && ExceptionStatus == InvoiceExceptionStatus.Marked) ||
-                   (Status == InvoiceStatusLegacy.Invalid);
+            return Status is InvoiceStatusLegacy.New or InvoiceStatusLegacy.Paid or InvoiceStatusLegacy.Expired or InvoiceStatusLegacy.Invalid ||
+                   (Status != InvoiceStatusLegacy.Complete && ExceptionStatus == InvoiceExceptionStatus.Marked);
         }
 
         public bool CanMarkInvalid()
         {
-            return (Status == InvoiceStatusLegacy.Paid) ||
-                   (Status == InvoiceStatusLegacy.New) ||
-                   ((Status == InvoiceStatusLegacy.New || Status == InvoiceStatusLegacy.Expired) && ExceptionStatus == InvoiceExceptionStatus.PaidPartial) ||
-                   ((Status == InvoiceStatusLegacy.New || Status == InvoiceStatusLegacy.Expired) && ExceptionStatus == InvoiceExceptionStatus.PaidLate) ||
+            return Status is InvoiceStatusLegacy.New or InvoiceStatusLegacy.Paid or InvoiceStatusLegacy.Expired ||
                    (Status != InvoiceStatusLegacy.Invalid && ExceptionStatus == InvoiceExceptionStatus.Marked);
         }
 
@@ -887,30 +976,31 @@ namespace BTCPayServer.Services.Invoices
 
     public class PaymentMethodAccounting
     {
+        public int Divisibility { get; set; }
         /// <summary>Total amount of this invoice</summary>
-        public Money TotalDue { get; set; }
+        public decimal TotalDue { get; set; }
 
         /// <summary>Amount of crypto remaining to pay this invoice</summary>
-        public Money Due { get; set; }
+        public decimal Due { get; set; }
 
         /// <summary>Same as Due, can be negative</summary>
-        public Money DueUncapped { get; set; }
+        public decimal DueUncapped { get; set; }
 
         /// <summary>If DueUncapped is negative, that means user overpaid invoice</summary>
-        public Money OverpaidHelper
+        public decimal OverpaidHelper
         {
-            get { return DueUncapped > Money.Zero ? Money.Zero : -DueUncapped; }
+            get { return DueUncapped > 0.0m ? 0.0m : -DueUncapped; }
         }
 
         /// <summary>
         /// Total amount of the invoice paid after conversion to this crypto currency
         /// </summary>
-        public Money Paid { get; set; }
+        public decimal Paid { get; set; }
 
         /// <summary>
         /// Total amount of the invoice paid in this currency
         /// </summary>
-        public Money CryptoPaid { get; set; }
+        public decimal CryptoPaid { get; set; }
 
         /// <summary>
         /// Number of transactions required to pay
@@ -924,15 +1014,25 @@ namespace BTCPayServer.Services.Invoices
         /// <summary>
         /// Total amount of network fee to pay to the invoice
         /// </summary>
-        public Money NetworkFee { get; set; }
+        public decimal NetworkFee { get; set; }
         /// <summary>
         /// Total amount of network fee to pay to the invoice
         /// </summary>
-        public Money NetworkFeeAlreadyPaid { get; set; }
+        public decimal NetworkFeeAlreadyPaid { get; set; }
         /// <summary>
         /// Minimum required to be paid in order to accept invoice as paid
         /// </summary>
-        public Money MinimumTotalDue { get; set; }
+        public decimal MinimumTotalDue { get; set; }
+
+        public decimal ToSmallestUnit(decimal v)
+        {
+            for (int i = 0; i < Divisibility; i++)
+            {
+                v *= 10.0m;
+            }
+            return v;
+        }
+        public string ShowMoney(decimal v) => MoneyExtensions.ShowMoney(v, Divisibility);
     }
 
     public interface IPaymentMethod
@@ -949,8 +1049,7 @@ namespace BTCPayServer.Services.Invoices
         [JsonIgnore]
         public BTCPayNetworkBase Network { get; set; }
         [JsonProperty(PropertyName = "cryptoCode", DefaultValueHandling = DefaultValueHandling.Ignore)]
-        [Obsolete("Use GetId().CryptoCode instead")]
-        public string CryptoCode { get; set; }
+        public string Currency { get; set; }
         [JsonProperty(PropertyName = "paymentType", DefaultValueHandling = DefaultValueHandling.Ignore)]
         [Obsolete("Use GetId().PaymentType instead")]
         public string PaymentType { get; set; }
@@ -965,14 +1064,14 @@ namespace BTCPayServer.Services.Invoices
         public PaymentMethodId GetId()
         {
 #pragma warning disable CS0618 // Type or member is obsolete
-            return new PaymentMethodId(CryptoCode, string.IsNullOrEmpty(PaymentType) ? PaymentTypes.BTCLike : PaymentTypes.Parse(PaymentType));
+            return new PaymentMethodId(Currency, string.IsNullOrEmpty(PaymentType) ? PaymentTypes.BTCLike : PaymentTypes.Parse(PaymentType));
 #pragma warning restore CS0618 // Type or member is obsolete
         }
 
         public void SetId(PaymentMethodId id)
         {
 #pragma warning disable CS0618 // Type or member is obsolete
-            CryptoCode = id.CryptoCode;
+            Currency = id.CryptoCode;
             PaymentType = id.PaymentType.ToString();
 #pragma warning restore CS0618 // Type or member is obsolete
         }
@@ -989,25 +1088,40 @@ namespace BTCPayServer.Services.Invoices
             // Legacy, old code does not have PaymentMethods
             if (string.IsNullOrEmpty(PaymentType) || PaymentMethodDetails == null)
             {
-                return new Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod()
+                return new BitcoinLikeOnChainPaymentMethod
                 {
                     FeeRate = FeeRate,
                     DepositAddress = string.IsNullOrEmpty(DepositAddress) ? null : DepositAddress,
                     NextNetworkFee = NextNetworkFee
                 };
             }
-            else
+
+            // A bug in previous version of BTCPay Server wasn't properly serializing those fields
+            if (PaymentMethodDetails["PaymentHash"] is JObject)
+                PaymentMethodDetails["PaymentHash"] = null;
+            if (PaymentMethodDetails["Preimage"] is JObject)
+                PaymentMethodDetails["Preimage"] = null;
+            IPaymentMethodDetails details = GetId().PaymentType.DeserializePaymentMethodDetails(Network, PaymentMethodDetails.ToString());
+            switch (details)
             {
-                IPaymentMethodDetails details = GetId().PaymentType.DeserializePaymentMethodDetails(Network, PaymentMethodDetails.ToString());
-                if (details is Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod btcLike)
-                {
+                case BitcoinLikeOnChainPaymentMethod btcLike:
                     btcLike.NextNetworkFee = NextNetworkFee;
                     btcLike.DepositAddress = string.IsNullOrEmpty(DepositAddress) ? null : DepositAddress;
                     btcLike.FeeRate = FeeRate;
-                }
-                return details;
+                    break;
+                case LightningLikePaymentMethodDetails lnLike:
+                    // use set properties and fall back to values from payment data
+                    var payments = ParentEntity.GetPayments(true).Where(paymentEntity =>
+                        paymentEntity.GetPaymentMethodId() == GetId());
+                    var payment = payments.Select(p => p.GetCryptoPaymentData() as LightningLikePaymentData).FirstOrDefault();
+                    var paymentHash = payment?.PaymentHash != null && payment.PaymentHash != default ? payment.PaymentHash : null;
+                    var preimage = payment?.Preimage != null && payment.Preimage != default ? payment.Preimage : null;
+                    lnLike.PaymentHash = lnLike.PaymentHash != null && lnLike.PaymentHash != default ? lnLike.PaymentHash : paymentHash;
+                    lnLike.Preimage = lnLike.Preimage != null && lnLike.Preimage != default ? lnLike.Preimage : preimage;
+                    break;
             }
-            throw new NotSupportedException(PaymentType);
+
+            return details;
 #pragma warning restore CS0618 // Type or member is obsolete
         }
 
@@ -1028,7 +1142,6 @@ namespace BTCPayServer.Services.Invoices
                 DepositAddress = bitcoinPaymentMethod.DepositAddress;
             }
             PaymentMethodDetails = JObject.Parse(paymentMethod.GetPaymentType().SerializePaymentMethodDetails(Network, paymentMethod));
-
 #pragma warning restore CS0618 // Type or member is obsolete
             return this;
         }
@@ -1043,71 +1156,58 @@ namespace BTCPayServer.Services.Invoices
         [Obsolete("Use ((BitcoinLikeOnChainPaymentMethod)GetPaymentMethod()).DepositAddress")]
         public string DepositAddress { get; set; }
 
-        public PaymentMethodAccounting Calculate(Func<PaymentEntity, bool> paymentPredicate = null)
+        public PaymentMethodAccounting Calculate()
         {
-            paymentPredicate = paymentPredicate ?? new Func<PaymentEntity, bool>((p) => true);
-            var paymentMethods = ParentEntity.GetPaymentMethods();
-
-            var totalDue = ParentEntity.Price / Rate;
-            var paid = 0m;
-            var cryptoPaid = 0.0m;
-
+            var i = ParentEntity;
             int precision = Network?.Divisibility ?? 8;
-            var totalDueNoNetworkCost = Money.Coins(Extensions.RoundUp(totalDue, precision));
-            bool paidEnough = paid >= Extensions.RoundUp(totalDue, precision);
-            int txRequired = 0;
-            decimal networkFeeAlreadyPaid = 0.0m;
-            _ = ParentEntity.GetPayments(true)
-                .Where(p => paymentPredicate(p))
-                .OrderBy(p => p.ReceivedTime)
-                .Select(_ =>
-                {
-                    var txFee = _.GetValue(paymentMethods, GetId(), _.NetworkFee, precision);
-                    networkFeeAlreadyPaid += txFee;
-                    paid += _.GetValue(paymentMethods, GetId(), null, precision);
-                    if (!paidEnough)
-                    {
-                        totalDue += txFee;
-                    }
-
-                    paidEnough |= Extensions.RoundUp(paid, precision) >= Extensions.RoundUp(totalDue, precision);
-                    if (GetId() == _.GetPaymentMethodId())
-                    {
-                        cryptoPaid += _.GetCryptoPaymentData().GetValue();
-                        txRequired++;
-                    }
-
-                    return _;
-                }).ToArray();
-
             var accounting = new PaymentMethodAccounting();
-            accounting.TxCount = txRequired;
-            if (!paidEnough)
+            var thisPaymentMethodPayments = i.GetPayments(true).Where(p => GetId() == p.GetPaymentMethodId()).ToList();
+            accounting.TxCount = thisPaymentMethodPayments.Count;
+            accounting.TxRequired = accounting.TxCount;
+            var grossDue = i.Price + i.PaidFee;
+            if (i.MinimumNetDue > 0.0m)
             {
-                txRequired++;
-                totalDue += GetTxFee();
+                accounting.TxRequired++;
+                grossDue += Rate * (GetPaymentMethodDetails()?.GetNextNetworkFee() ?? 0m);
             }
+            accounting.Divisibility = precision;
+            accounting.TotalDue = Coins(grossDue / Rate, precision);
+            accounting.Paid = Coins(i.PaidAmount.Gross / Rate, precision);
+            accounting.CryptoPaid = Coins(thisPaymentMethodPayments.Sum(p => p.PaidAmount.Gross), precision);
 
-            accounting.TotalDue = Money.Coins(Extensions.RoundUp(totalDue, precision));
-            accounting.Paid = Money.Coins(Extensions.RoundUp(paid, precision));
-            accounting.TxRequired = txRequired;
-            accounting.CryptoPaid = Money.Coins(Extensions.RoundUp(cryptoPaid, precision));
-            accounting.Due = Money.Max(accounting.TotalDue - accounting.Paid, Money.Zero);
-            accounting.DueUncapped = accounting.TotalDue - accounting.Paid;
-            accounting.NetworkFee = accounting.TotalDue - totalDueNoNetworkCost;
-            accounting.NetworkFeeAlreadyPaid = Money.Coins(Extensions.RoundUp(networkFeeAlreadyPaid, precision));
-            // If the total due is 0, there is no payment tolerance to calculate
-            var minimumTotalDueSatoshi = accounting.TotalDue.Satoshi == 0
-                ? 0
-                : Math.Max(1.0m,
-                    accounting.TotalDue.Satoshi * (1.0m - ((decimal)ParentEntity.PaymentTolerance / 100.0m)));
-            accounting.MinimumTotalDue = Money.Satoshis(minimumTotalDueSatoshi);
+            // This one deal with the fact where it might looks like a slight over payment due to the dust of another payment method.
+            // So if we detect the NetDue is zero, just cap dueUncapped to 0
+            var dueUncapped = i.NetDue == 0.0m ? 0.0m : grossDue - i.PaidAmount.Gross;
+            accounting.DueUncapped = Coins(dueUncapped / Rate, precision);
+            accounting.Due = Max(accounting.DueUncapped, 0.0m);
+            
+            accounting.NetworkFee = Coins((grossDue - i.Price) / Rate, precision);
+            accounting.NetworkFeeAlreadyPaid = Coins(i.PaidFee / Rate, precision);
+            
+            accounting.MinimumTotalDue = Max(Smallest(precision), Coins((grossDue * (1.0m - ((decimal)i.PaymentTolerance / 100.0m))) / Rate, precision));
             return accounting;
         }
 
-        private decimal GetTxFee()
+        private decimal Smallest(int precision)
         {
-            return GetPaymentMethodDetails()?.GetNextNetworkFee() ?? 0m;
+            decimal a = 1.0m;
+            for (int i = 0; i < precision; i++)
+            {
+                a /= 10.0m;
+            }
+            return a;
+        }
+
+        decimal Max(decimal a, decimal b) => a > b ? a : b;
+
+        const decimal MaxCoinValue = decimal.MaxValue / 1_0000_0000m;
+        internal static decimal Coins(decimal v, int precision)
+        {
+            v = Extensions.RoundUp(v, precision);
+            // Clamp the value to not crash on degenerate invoices
+            if (v > MaxCoinValue)
+                v = MaxCoinValue;            
+            return v;
         }
     }
 
@@ -1169,19 +1269,60 @@ namespace BTCPayServer.Services.Invoices
             get; set;
         }
 
-
-        [Obsolete("Use GetpaymentMethodId().CryptoCode instead")]
-        public string CryptoCode
+        string _Currency;
+        [JsonProperty("cryptoCode")]
+        public string Currency
         {
-            get;
-            set;
+            get
+            {
+                return _Currency ?? "BTC";
+            }
+            set
+            {
+                _Currency = value;
+            }
         }
 
         [Obsolete("Use GetCryptoPaymentData() instead")]
         public string CryptoPaymentData { get; set; }
         [Obsolete("Use GetpaymentMethodId().PaymentType instead")]
         public string CryptoPaymentDataType { get; set; }
+        [JsonIgnore]
+        public decimal Rate { get; set; }
+        [JsonIgnore]
+        /// <summary>
+        public string InvoiceCurrency => InvoiceEntity.Currency;
+        /// The amount paid by this payment in the <see cref="Currency"/>
+        /// </summary>
+        [JsonIgnore]
+        public Amounts PaidAmount { get; set; }
+        /// <summary>
+        /// The amount paid by this payment in the <see cref="InvoiceCurrency"/>
+        /// </summary>
+        [JsonIgnore]
+        public Amounts InvoicePaidAmount { get; set; }
+        [JsonIgnore]
+        public InvoiceEntity InvoiceEntity { get; set; }
 
+        public void UpdateAmounts()
+        {
+            var pd = GetCryptoPaymentData();
+            if (pd is null)
+                return;
+            var value = pd.GetValue();
+            PaidAmount = new Amounts()
+            {
+                Currency = Currency,
+                Gross = value,
+                Net = value - NetworkFee
+            };
+            InvoicePaidAmount = new Amounts()
+            {
+                Currency = InvoiceCurrency,
+                Gross = PaidAmount.Gross * Rate,
+                Net = PaidAmount.Net * Rate
+            };
+        }
 
         public CryptoPaymentData GetCryptoPaymentData()
         {
@@ -1240,21 +1381,6 @@ namespace BTCPayServer.Services.Invoices
 #pragma warning restore CS0618
             return this;
         }
-        internal decimal GetValue(PaymentMethodDictionary paymentMethods, PaymentMethodId paymentMethodId, decimal? value, int precision)
-        {
-
-            value = value ?? this.GetCryptoPaymentData().GetValue();
-            var to = paymentMethodId;
-            var from = this.GetPaymentMethodId();
-            if (to == from)
-                return decimal.Round(value.Value, precision);
-            var fromRate = paymentMethods[from].Rate;
-            var toRate = paymentMethods[to].Rate;
-
-            var fiatValue = fromRate * decimal.Round(value.Value, precision);
-            var otherCurrencyValue = toRate == 0 ? 0.0m : fiatValue / toRate;
-            return otherCurrencyValue;
-        }
 
         public PaymentMethodId GetPaymentMethodId()
         {
@@ -1263,21 +1389,13 @@ namespace BTCPayServer.Services.Invoices
             if (string.IsNullOrEmpty(CryptoPaymentDataType))
             {
                 paymentType = BitcoinPaymentType.Instance;
-                ;
             }
             else if (!PaymentTypes.TryParse(CryptoPaymentDataType, out paymentType))
             {
                 return null;
             }
-            return new PaymentMethodId(CryptoCode ?? "BTC", paymentType);
+            return new PaymentMethodId(Currency ?? "BTC", paymentType);
 #pragma warning restore CS0618 // Type or member is obsolete
-        }
-
-        public string GetCryptoCode()
-        {
-#pragma warning disable CS0618
-            return CryptoCode ?? "BTC";
-#pragma warning restore CS0618
         }
     }
     /// <summary>
@@ -1308,5 +1426,7 @@ namespace BTCPayServer.Services.Invoices
 
         PaymentType GetPaymentType();
         string GetDestination();
+
+        string GetPaymentProof();
     }
 }

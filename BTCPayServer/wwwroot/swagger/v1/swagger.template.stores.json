@@ -254,10 +254,92 @@
                     }
                 ]
             }
+        },
+        "/api/v1/stores/{storeId}/roles": {
+            "get": {
+                "tags": [
+                    "Stores"
+                ],
+                "summary": "Get store's roles",
+                "parameters": [
+                    {
+                        "name": "storeId",
+                        "in": "path",
+                        "required": true,
+                        "description": "The store to fetch",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "description": "View information about the specified store's roles",
+                "operationId": "Stores_GetStoreRoles",
+                "responses": {
+                    "200": {
+                        "description": "The user roles available for this store",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RoleData"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "If you are authenticated but forbidden to get the store's roles"
+                    },
+                    "404": {
+                        "description": "Store not found"
+                    }
+                },
+                "security": [
+                    {
+                        "API_Key": [
+                            "btcpay.store.canmodifystoresettings"
+                        ],
+                        "Basic": []
+                    }
+                ]
+            }
         }
     },
     "components": {
         "schemas": {
+            "RoleData": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "description": "The role's Id (Same as role if the role is created at server level, if the role is created at the store level the format is `STOREID::ROLE`)",
+                        "type": "string",
+                        "nullable": false,
+                        "example": "Owner"
+                    },
+                    "role": {
+                        "description": "The role's name",
+                        "type": "string",
+                        "nullable": false,
+                        "example": "Owner"
+                    },
+                    "permissions": {
+                        "description": "The permissions attached to this role",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "btcpay.store.canmodifystoresettings",
+                            "btcpay.store.cantradecustodianaccount",
+                            "btcpay.store.canwithdrawfromcustodianaccount",
+                            "btcpay.store.candeposittocustodianaccount"
+                        ]
+                    },
+                    "isServerRole": {
+                        "description": "Whether this role is at the scope of the store or scope of the server",
+                        "type": "boolean",
+                        "example": true
+                    }
+                }
+            },
             "StoreDataList": {
                 "type": "array",
                 "items": {
@@ -281,6 +363,33 @@
                     }
                 ]
             },
+            "PaymentMethodCriteriaData": {
+                "type": "object",
+                "properties": {
+                    "paymentMethod": {
+                        "type": "string",
+                        "description": "The payment method (e.g., \"BTC\" or \"BTC_LightningLike\")",
+                        "nullable": false
+                    },
+                    "currencyCode": {
+                        "type": "string",
+                        "description": "The currency",
+                        "default": "USD",
+                        "example": "USD"
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "minimum": 0,
+                        "description": "The amount"
+                    },
+                    "above": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "If the criterion is for above or below the amount"
+                    }
+                }
+            },
             "StoreBaseData": {
                 "type": "object",
                 "x-abstract": true,
@@ -292,8 +401,15 @@
                     },
                     "website": {
                         "type": "string",
+                        "nullable": true,
                         "description": "The absolute url of the store",
                         "format": "url"
+                    },
+                    "supportUrl": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "The support URI of the store, can contain the placeholders `{OrderId}` and `{InvoiceId}`. Can be any valid URI, such as a website, email, and nostr.",
+                        "format": "uri"
                     },
                     "defaultCurrency": {
                         "type": "string",
@@ -306,6 +422,13 @@
                         "minimum": 60,
                         "maximum": 2073600,
                         "description": "The time after which an invoice is considered expired if not paid. The value will be rounded down to a minute.",
+                        "allOf": [ { "$ref": "#/components/schemas/TimeSpanSeconds" } ]
+                    },
+                    "displayExpirationTimer": {
+                        "default": 300,
+                        "minimum": 60,
+                        "maximum": 2073600,
+                        "description": "The time left that will trigger the countdown timer on the checkout page to be shown. The value will be rounded down to a minute.",
                         "allOf": [ { "$ref": "#/components/schemas/TimeSpanSeconds" } ]
                     },
                     "monitoringExpiration": {
@@ -416,6 +539,14 @@
                         "type": "string",
                         "example": "BTC",
                         "description": "The default payment method to load when displaying an invoice. It can be in the format of `BTC_LightningNetwork` to specify Lightning to be the default or `BTC_OnChain`/ `BTC` for on-chain to be the default. "
+                    },
+                    "paymentMethodCriteria": {
+                        "type": "array",
+                        "nullable": true,
+                        "items": {
+                            "$ref": "#/components/schemas/PaymentMethodCriteriaData"
+                        },
+                        "description": "The criteria required to activate specific payment methods."
                     }
                 }
             },

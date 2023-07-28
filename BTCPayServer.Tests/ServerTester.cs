@@ -58,6 +58,7 @@ namespace BTCPayServer.Tests
                 var r = RandomUtils.GetUInt32();
                 PayTester.Postgres = PayTester.Postgres.Replace("btcpayserver", $"btcpayserver{r}");
                 PayTester.MySQL = PayTester.MySQL.Replace("btcpayserver", $"btcpayserver{r}");
+                TestLogs.LogInformation($"Database used: btcpayserver{r}");
             }
             PayTester.Port = int.Parse(GetEnvironment("TESTS_PORT", Utils.FreeTcpPort().ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
             PayTester.HostName = GetEnvironment("TESTS_HOSTNAME", "127.0.0.1");
@@ -91,7 +92,7 @@ namespace BTCPayServer.Tests
 #endif
         public void ActivateLightning()
         {
-            ActivateLightning(LightningConnectionType.Charge);
+            ActivateLightning(LightningConnectionType.CLightning);
         }
         public void ActivateLightning(LightningConnectionType internalNode)
         {
@@ -108,14 +109,7 @@ namespace BTCPayServer.Tests
             string connectionString = null;
             if (connectionType is null)
                 return LightningSupportedPaymentMethod.InternalNode;
-            if (connectionType == LightningConnectionType.Charge)
-            {
-                if (isMerchant)
-                    connectionString = $"type=charge;server={MerchantCharge.Client.Uri.AbsoluteUri};allowinsecure=true";
-                else
-                    throw new NotSupportedException();
-            }
-            else if (connectionType == LightningConnectionType.CLightning)
+            if (connectionType == LightningConnectionType.CLightning)
             {
                 if (isMerchant)
                     connectionString = "type=clightning;server=" +
@@ -176,7 +170,7 @@ namespace BTCPayServer.Tests
 
         public async Task<PayResponse> SendLightningPaymentAsync(Invoice invoice)
         {
-            var bolt11 = invoice.CryptoInfo.Where(o => o.PaymentUrls.BOLT11 != null).First().PaymentUrls.BOLT11;
+            var bolt11 = invoice.CryptoInfo.Where(o => o.PaymentUrls?.BOLT11 != null).First().PaymentUrls.BOLT11;
             bolt11 = bolt11.Replace("lightning:", "", StringComparison.OrdinalIgnoreCase);
             return await CustomerLightningD.Pay(bolt11);
         }
@@ -193,7 +187,8 @@ namespace BTCPayServer.Tests
                     tcs.TrySetResult(evt);
                 }
             });
-            await action.Invoke();
+            if (action != null)
+                await action.Invoke();
             var result = await tcs.Task;
             sub.Dispose();
             return result;
@@ -245,15 +240,20 @@ namespace BTCPayServer.Tests
         }
 
         public List<string> Stores { get; internal set; } = new List<string>();
+        public bool DeleteStore { get; set; } = true;
+        public BTCPayNetworkBase DefaultNetwork => NetworkProvider.DefaultNetwork;
 
         public void Dispose()
         {
             foreach (var r in this.Resources)
                 r.Dispose();
             TestLogs.LogInformation("Disposing the BTCPayTester...");
-            foreach (var store in Stores)
+            if (DeleteStore)
             {
-                Xunit.Assert.True(PayTester.StoreRepository.DeleteStore(store).GetAwaiter().GetResult());
+                foreach (var store in Stores)
+                {
+                    Xunit.Assert.True(PayTester.StoreRepository.DeleteStore(store).GetAwaiter().GetResult());
+                }
             }
             if (PayTester != null)
                 PayTester.Dispose();

@@ -33,14 +33,17 @@ namespace BTCPayServer.Controllers
                 StoreId = CurrentStore.Id,
                 StoreName = CurrentStore.StoreName,
                 CryptoCode = cryptoCode,
-                Network =  _NetworkProvider.DefaultNetwork,
+                Network = _NetworkProvider.DefaultNetwork,
                 IsSetUp = walletEnabled || lightningEnabled
             };
-            
+
             // Widget data
-            if (!vm.WalletEnabled && !vm.LightningEnabled) return View(vm);
-            
+            if (!vm.WalletEnabled && !vm.LightningEnabled)
+                return View(vm);
+
             var userId = GetUserId();
+            if (userId is null)
+                return NotFound();
             var apps = await _appService.GetAllApps(userId, false, store.Id);
             foreach (var app in apps)
             {
@@ -61,7 +64,7 @@ namespace BTCPayServer.Controllers
             var vm = new StoreLightningBalanceViewModel { Store = store, CryptoCode = cryptoCode };
             return ViewComponent("StoreLightningBalance", new { vm });
         }
-        
+
         [HttpGet("{storeId}/dashboard/{cryptoCode}/numbers")]
         public IActionResult StoreNumbers(string storeId, string cryptoCode)
         {
@@ -69,10 +72,10 @@ namespace BTCPayServer.Controllers
             if (store == null)
                 return NotFound();
 
-            var vm = new StoreNumbersViewModel { Store = store, CryptoCode = cryptoCode  };
+            var vm = new StoreNumbersViewModel { Store = store, CryptoCode = cryptoCode };
             return ViewComponent("StoreNumbers", new { vm });
         }
-        
+
         [HttpGet("{storeId}/dashboard/{cryptoCode}/recent-transactions")]
         public IActionResult RecentTransactions(string storeId, string cryptoCode)
         {
@@ -80,10 +83,10 @@ namespace BTCPayServer.Controllers
             if (store == null)
                 return NotFound();
 
-            var vm = new StoreRecentTransactionsViewModel { Store = store, CryptoCode = cryptoCode  };
+            var vm = new StoreRecentTransactionsViewModel { Store = store, CryptoCode = cryptoCode };
             return ViewComponent("StoreRecentTransactions", new { vm });
         }
-        
+
         [HttpGet("{storeId}/dashboard/{cryptoCode}/recent-invoices")]
         public IActionResult RecentInvoices(string storeId, string cryptoCode)
         {
@@ -91,7 +94,7 @@ namespace BTCPayServer.Controllers
             if (store == null)
                 return NotFound();
 
-            var vm = new StoreRecentInvoicesViewModel { Store = store, CryptoCode = cryptoCode  };
+            var vm = new StoreRecentInvoicesViewModel { Store = store, CryptoCode = cryptoCode };
             return ViewComponent("StoreRecentInvoices", new { vm });
         }
     }

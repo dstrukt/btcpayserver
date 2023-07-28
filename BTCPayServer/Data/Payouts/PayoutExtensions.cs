@@ -32,10 +32,12 @@ namespace BTCPayServer.Data
         {
             return PaymentMethodId.TryParse(data.PaymentMethodId, out var paymentMethodId) ? paymentMethodId : null;
         }
-        
+
         public static PayoutBlob GetBlob(this PayoutData data, BTCPayNetworkJsonSerializerSettings serializers)
         {
-            return JsonConvert.DeserializeObject<PayoutBlob>(Encoding.UTF8.GetString(data.Blob), serializers.GetSerializer(data.GetPaymentMethodId().CryptoCode));
+            var result =  JsonConvert.DeserializeObject<PayoutBlob>(Encoding.UTF8.GetString(data.Blob), serializers.GetSerializer(data.GetPaymentMethodId().CryptoCode));
+            result.Metadata ??= new JObject();
+            return result;
         }
         public static void SetBlob(this PayoutData data, PayoutBlob blob, BTCPayNetworkJsonSerializerSettings serializers)
         {
@@ -77,7 +79,6 @@ namespace BTCPayServer.Data
             this IEnumerable<IPayoutHandler> payoutHandlers, StoreData storeData)
         {
             return (await Task.WhenAll(payoutHandlers.Select(handler => handler.GetSupportedPaymentMethods(storeData)))).SelectMany(ids => ids).ToList();
-
         }
     }
 }

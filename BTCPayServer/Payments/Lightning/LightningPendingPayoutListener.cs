@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Client.Models;
@@ -56,10 +56,10 @@ public class LightningPendingPayoutListener : BaseAsyncService
             .ToDictionary(network => new PaymentMethodId(network.CryptoCode, PaymentTypes.LightningLike));
 
 
-        var payouts = await _pullPaymentHostedService.GetPayouts(
+        var payouts = await PullPaymentHostedService.GetPayouts(
             new PullPaymentHostedService.PayoutQuery()
             {
-                States = new PayoutState[] {PayoutState.InProgress},
+                States = new PayoutState[] { PayoutState.InProgress },
                 PaymentMethods = networks.Keys.Select(id => id.ToString()).ToArray()
             }, context);
         var storeIds = payouts.Select(data => data.StoreDataId).Distinct();
@@ -100,38 +100,38 @@ public class LightningPendingPayoutListener : BaseAsyncService
                         case null:
                             break;
                         case PayoutLightningBlob payoutLightningBlob:
-                        {
-                            var payment = await client.GetPayment(payoutLightningBlob.Id, Cancellation);
-                            if (payment is null)
                             {
-                                continue;
-                            }
+                                var payment = await client.GetPayment(payoutLightningBlob.Id, CancellationToken);
+                                if (payment is null)
+                                {
+                                    continue;
+                                }
 
-                            switch (payment.Status)
-                            {
-                                case LightningPaymentStatus.Complete:
-                                    payoutData.State = PayoutState.Completed;
-                                    payoutLightningBlob.Preimage = payment.Preimage;
-                                    payoutData.SetProofBlob(payoutLightningBlob, null);
-                                    break;
-                                case LightningPaymentStatus.Failed:
-                                    payoutData.State = PayoutState.Cancelled;
-                                    break;
-                            }
+                                switch (payment.Status)
+                                {
+                                    case LightningPaymentStatus.Complete:
+                                        payoutData.State = PayoutState.Completed;
+                                        payoutLightningBlob.Preimage = payment.Preimage;
+                                        payoutData.SetProofBlob(payoutLightningBlob, null);
+                                        break;
+                                    case LightningPaymentStatus.Failed:
+                                        payoutData.State = PayoutState.Cancelled;
+                                        break;
+                                }
 
-                            break;
-                        }
+                                break;
+                            }
                     }
                 }
             }
         }
 
-        await context.SaveChangesAsync(Cancellation);
-        await Task.Delay(TimeSpan.FromSeconds(SecondsDelay), Cancellation);
+        await context.SaveChangesAsync(CancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(SecondsDelay), CancellationToken);
     }
 
     internal override Task[] InitializeTasks()
     {
-        return new[] {CreateLoopTask(Act)};
+        return new[] { CreateLoopTask(Act) };
     }
 }

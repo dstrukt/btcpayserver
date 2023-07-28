@@ -1,21 +1,32 @@
 @using BTCPayServer.BIP78.Sender
+@using BTCPayServer.Components.TruncateCenter
+@using BTCPayServer.Abstractions.TagHelpers
 @model BTCPayServer.Models.InvoicingModels.PaymentModel
 
 <template id="bitcoin-method-checkout-template">
+    @await Component.InvokeAsync("UiExtensionPoint", new {location = "checkout-v2-bitcoin-pre-content", model = Model})
     <div class="payment-box">
-        <div class="qr-container" data-clipboard-confirm-element="QR_Text_@Model.PaymentMethodId" :data-clipboard="model.invoiceBitcoinUrl" :data-clipboard-confirm="$t('copy_confirm')" :data-destination="model.btcAddress">
-            <qrcode v-if="model.invoiceBitcoinUrlQR" :value="model.invoiceBitcoinUrlQR" tag="div" :options="qrOptions" />
+        <div v-if="model.invoiceBitcoinUrlQR" class="qr-container" :data-qr-value="model.invoiceBitcoinUrlQR" :data-clipboard="model.btcAddress">
+            <div>
+                <qrcode :value="model.invoiceBitcoinUrlQR" tag="div" :options="qrOptions" />
+            </div>
+            <img class="qr-icon" :src="model.cryptoImage" :alt="model.paymentMethodName"/>
         </div>
-        <div class="mt-2 mb-4">
-            <small class="qr-text" id="QR_Text_@Model.PaymentMethodId" v-t="'qr_text'"></small>
-            @*
-            <input type="text" class="form-control form-control-sm" :value="model.btcAddress"
-                   :data-clipboard="model.btcAddress" :data-clipboard-confirm="`$t('copy_confirm')"
-                   data-clipboard-confirm-element="QR_Text_@Model.PaymentMethodId" readonly>
-            *@
+        <div v-if="model.btcAddress" class="input-group mt-3">
+            <div class="form-floating" id="Address_@Model.PaymentMethodId">
+                <vc:truncate-center text="model.btcAddress" is-vue="true" padding="15" elastic="true" classes="form-control-plaintext" />
+                <label v-t="{ path: 'address', args: { paymentMethod: model.paymentMethodName }}"></label>
+            </div>
         </div>
-        <a v-if="model.invoiceBitcoinUrl" class="btn btn-primary rounded-pill w-100" target="_top"
+        <div v-if="lightning" class="input-group mt-3">
+            <div class="form-floating" id="Lightning_@Model.PaymentMethodId">
+                <vc:truncate-center text="lightning" is-vue="true" padding="15" elastic="true" classes="form-control-plaintext" />
+                <label v-t="'lightning'"></label>
+            </div>
+        </div>
+        <a v-if="model.invoiceBitcoinUrl && model.showPayInWalletButton" class="btn btn-primary rounded-pill w-100 mt-4" target="_top" id="PayInWallet"
            :href="model.invoiceBitcoinUrl" :title="$t(hasPayjoin ? 'BIP21 payment link with PayJoin support' : 'BIP21 payment link')" v-t="'pay_in_wallet'"></a>
+        @await Component.InvokeAsync("UiExtensionPoint", new {location = "checkout-v2-bitcoin-post-content", model = Model})
     </div>
 </template>
 
@@ -33,6 +44,10 @@
         computed: {
             hasPayjoin () {
                 return this.model.invoiceBitcoinUrl.indexOf('@PayjoinClient.BIP21EndpointKey=') !== -1;
+            },
+            lightning () {
+                const match = this.model.invoiceBitcoinUrl.match(/[&?]lightning=(.*)&?/i);
+                return match ? match[1].toLowerCase() : null;
             }
         }
     });

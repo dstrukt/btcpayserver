@@ -1,13 +1,14 @@
-@inject BTCPayServer.Services.BTCPayServerEnvironment Env
-@inject BTCPayServer.Services.ThemeSettings Theme
-@inject BTCPayNetworkProvider BtcPayNetworkProvider
 @using BTCPayServer.Client
-@using BTCPayServer.Components.ThemeSwitch
-@using BTCPayServer.Payments
+@using BTCPayServer.Services
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+@using BTCPayServer.Abstractions.TagHelpers
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
+@inject BTCPayServerEnvironment Env
+@inject DisplayFormatter DisplayFormatter
 @model BTCPayServer.Models.ViewPullPaymentModel
-
 @{
     ViewData["Title"] = Model.Title;
+	Csp.UnsafeEval();
     Layout = null;
     string StatusTextClass(string status)
     {
@@ -22,42 +23,19 @@
                 return "bg-warning";
         }
     }
-    
-    
-    string lnurl = null;
-    string lnurlUri = null;
-
-    var pms = Model.PaymentMethods.FirstOrDefault(id => id.PaymentType == LightningPaymentType.Instance && BtcPayNetworkProvider.DefaultNetwork.CryptoCode == id.CryptoCode);
-    if (pms is not null && Model.Currency.Equals(pms.CryptoCode, StringComparison.InvariantCultureIgnoreCase))
-    {
-        var lnurlEndpoint = new Uri(Url.Action("GetLNURLForPullPayment", "UILNURL", new
-        {
-            cryptoCode = pms.CryptoCode,
-            pullPaymentId = Model.Id
-        }, Context.Request.Scheme, Context.Request.Host.ToString()));
-        lnurl = LNURL.LNURL.EncodeUri(lnurlEndpoint, "withdrawRequest", true).ToString();
-        lnurlUri = LNURL.LNURL.EncodeUri(lnurlEndpoint, "withdrawRequest", false).ToString();
-    }
 }
 <!DOCTYPE html>
 <html lang="en" @(Env.IsDeveloping ? " data-devenv" : "")>
 <head>
     <partial name="LayoutHead" />
-    <link href="~/vendor/font-awesome/css/font-awesome.min.css" asp-append-version="true"  rel="stylesheet" />
-    <link href="~/vendor/bootstrap-vue/bootstrap-vue.css" asp-append-version="true"  rel="stylesheet" />
-    <link href="~/main/site.css" asp-append-version="true"  rel="stylesheet" />
-
-    @if (Model.CustomCSSLink != null)
-    {
-        <link href="@Model.CustomCSSLink" rel="stylesheet" asp-append-version="true" />
-    }
-    @Safe.Raw(Model.EmbeddedCSS)
+    <partial name="LayoutHeadStoreBranding" model="@(Model.BrandColor, Model.CssFileId, Model.CustomCSSLink, Model.EmbeddedCSS)" />
+    <link href="~/vendor/bootstrap-vue/bootstrap-vue.min.css" asp-append-version="true"  rel="stylesheet" />
     <style>
         .no-marker > ul { list-style-type: none; }
     </style>
 </head>
-<body>
-    <div class="min-vh-100 d-flex flex-column">
+<body class="min-vh-100">
+    <div id="app" class="d-flex flex-column min-vh-100 pb-l">
         @if (Model.IsPending)
         {
             <nav class="btcpay-header navbar sticky-top py-3 py-lg-4 d-print-none">
@@ -66,7 +44,7 @@
                         <div class="row align-items-center" style="width:calc(100% + 30px)">
                             <div class="col-12 mb-3 col-lg-6 mb-lg-0">
                                 <div class="input-group">
-                                    @if (lnurl is not null)
+                                    @if (Model.LnurlEndpoint is not null)
                                     {
                                         <button type="button" class="input-group-prepend btn btn-outline-secondary" id="lnurlwithdraw-button" data-bs-toggle="modal" data-bs-target="#scan-qr-modal">
                                             <span class="fa fa-qrcode  fa-2x" title="LNURL-Withdraw"></span>
@@ -147,18 +125,18 @@
                             <h2 class="h4 mb-3">Payment Details</h2>
                             <dl class="mb-0 mt-md-4">
                                 <div class="d-flex d-print-inline-block flex-column mb-4 me-5">
-                                    <dt class="h4 fw-semibold text-nowrap text-primary text-print-default order-2 order-sm-1 mb-1">@Model.AmountDueFormatted</dt>
+                                    <dt class="h4 fw-semibold text-nowrap text-primary text-print-default order-2 order-sm-1 mb-1">@DisplayFormatter.Currency(Model.AmountDue, Model.Currency)</dt>
                                     <dd class="order-1 order-sm-2 mb-1">Available claim</dd>
                                 </div>
                                 <div class="progress bg-light d-none d-sm-flex mb-sm-4 d-print-none" style="height:5px">
                                     <div class="progress-bar bg-primary" role="progressbar" style="width:@((Model.AmountCollected / Model.Amount) * 100)%"></div>
                                 </div>
                                 <div class="d-flex d-print-inline-block flex-column mb-4 me-5 d-sm-inline-flex mb-sm-0">
-                                    <dt class="h4 fw-semibold text-nowrap order-2 order-sm-1 mb-1">@Model.AmountCollectedFormatted</dt>
+                                    <dt class="h4 fw-semibold text-nowrap order-2 order-sm-1 mb-1">@DisplayFormatter.Currency(Model.AmountCollected, Model.Currency)</dt>
                                     <dd class="order-1 order-sm-2 mb-1">Already claimed</dd>
                                 </div>
                                 <div class="d-flex d-print-inline-block flex-column mb-0 d-sm-inline-flex float-sm-end">
-                                    <dt class="h4 text-sm-end fw-semibold text-nowrap order-2 order-sm-1 mb-1">@Model.AmountFormatted</dt>
+                                    <dt class="h4 text-sm-end fw-semibold text-nowrap order-2 order-sm-1 mb-1">@DisplayFormatter.Currency(Model.Amount, Model.Currency)</dt>
                                     <dd class="text-sm-end order-1 order-sm-2 mb-1">Claim limit</dd>
                                 </div>
                             </dl>
@@ -215,29 +193,22 @@
                 </div>
             </div>
         </main>
-        <footer class="pt-2 pb-4 d-print-none">
-            <p class="container text-center" permission="@Policies.CanViewStoreSettings">
-                <a asp-action="EditPullPayment"
-                   asp-controller="UIPullPayment"
-                   asp-route-storeId="@Model.StoreId"
-                   asp-route-pullPaymentId="@Model.Id">
+        <footer class="store-footer">
+            <p permission="@Policies.CanViewStoreSettings">
+                <a asp-action="EditPullPayment" asp-controller="UIPullPayment" asp-route-storeId="@Model.StoreId" asp-route-pullPaymentId="@Model.Id">
                     Edit pull payment
                 </a>
             </p>
-            <div class="container d-flex flex-wrap align-items-center justify-content-center">
-                <span class="text-muted mx-2">
-                    Powered by <a href="https://btcpayserver.org" target="_blank" rel="noreferrer noopener">BTCPay Server</a>
-                </span>
-                @if (!Theme.CustomTheme)
-                {
-                    <vc:theme-switch css-class="text-muted mx-2" />
-                }
-            </div>
+            <a class="store-powered-by" href="https://btcpayserver.org" target="_blank" rel="noreferrer noopener">
+                Powered by <partial name="_StoreFooterLogo" />
+            </a>
         </footer>
     </div>
     <partial name="LayoutFoot" />
-  @if (lnurl is not null)
+  @if (Model.LnurlEndpoint is not null)
   {
+      var lnurlUri = LNURL.LNURL.EncodeUri(Model.LnurlEndpoint, "withdrawRequest", false).ToString();
+      var lnurlBech32 = LNURL.LNURL.EncodeUri(Model.LnurlEndpoint, "withdrawRequest", true).ToString();
       var note = "You can scan or open this link with a <a href='https://github.com/fiatjaf/lnurl-rfc#lnurl-documents' target='_blank' rel='noreferrer noopener'>LNURL-Withdraw</a> enabled wallet.";
       if (!Model.AutoApprove)
       {
@@ -250,16 +221,17 @@
         document.addEventListener("DOMContentLoaded", () => {
             const modes = {
                 uri: { title: "URI", fragments: [@Safe.Json(lnurlUri)], showData: true, href: @Safe.Json(lnurlUri) },
-                bech32: { title: "Bech32", fragments: [@Safe.Json(lnurl)], showData: true, href: @Safe.Json(lnurl) }
+                bech32: { title: "Bech32", fragments: [@Safe.Json(lnurlBech32)], showData: true, href: @Safe.Json(lnurlBech32) }
             };
             initQRShow({ title: "LNURL Withdraw", note: @Safe.Json(note), modes })
     });
     </script>
   }
-    <script>
+<script>
         document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("copyLink").addEventListener("click", window.copyUrlToClipboard);
         });
 </script>
+<vc:ui-extension-point location="pullpayment-foot"  model="@Model"></vc:ui-extension-point>
 </body>
 </html>

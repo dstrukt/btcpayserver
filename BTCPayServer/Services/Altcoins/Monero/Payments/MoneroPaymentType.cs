@@ -49,10 +49,10 @@ namespace BTCPayServer.Services.Altcoins.Monero.Payments
             return string.Format(CultureInfo.InvariantCulture, network.BlockExplorerLink, txId);
         }
 
-        public override string GetPaymentLink(BTCPayNetworkBase network, IPaymentMethodDetails paymentMethodDetails, Money cryptoInfoDue, string serverUri)
+        public override string GetPaymentLink(BTCPayNetworkBase network, InvoiceEntity invoice, IPaymentMethodDetails paymentMethodDetails, decimal cryptoInfoDue, string serverUri)
         {
             return paymentMethodDetails.Activated
-                ? $"{(network as MoneroLikeSpecificBtcPayNetwork).UriScheme}:{paymentMethodDetails.GetPaymentDestination()}?tx_amount={cryptoInfoDue.ToDecimal(MoneyUnit.BTC)}"
+                ? $"{(network as MoneroLikeSpecificBtcPayNetwork).UriScheme}:{paymentMethodDetails.GetPaymentDestination()}?tx_amount={cryptoInfoDue}"
                 : string.Empty;
         }
 
@@ -70,7 +70,7 @@ namespace BTCPayServer.Services.Altcoins.Monero.Payments
             return null;
         }
 
-        public override void PopulateCryptoInfo(PaymentMethod details, InvoiceCryptoInfo invoiceCryptoInfo, string serverUrl)
+        public override void PopulateCryptoInfo(InvoiceEntity invoice, PaymentMethod details, InvoiceCryptoInfo invoiceCryptoInfo, string serverUrl)
         {
             
         }

@@ -2,11 +2,13 @@
 @using Newtonsoft.Json
 @using System.Text
 @using BTCPayServer.Abstractions.Models
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
 @model WalletSettingsViewModel
 @{
-    Layout = "../Shared/_NavLayout.cshtml";
-    ViewData["NavPartialName"] = "../UIWallets/_Nav";
-    ViewData.SetActivePage(StoreNavPages.OnchainSettings, $"{Model.CryptoCode} Wallet Settings", Context.GetStoreData().Id);
+	Layout = "../Shared/_NavLayout.cshtml";
+	ViewData["NavPartialName"] = "../UIWallets/_Nav";
+	ViewData.SetActivePage(StoreNavPages.OnchainSettings, $"{Model.CryptoCode} Wallet Settings", Context.GetStoreData().Id);
+	Csp.UnsafeEval();
 }
 
 @section PageHeadContent {
@@ -88,8 +90,10 @@
                 <div class="form-group">
                     <label asp-for="DerivationScheme" class="form-label"></label>
                     <div class="input-group" data-clipboard="@Model.DerivationScheme">
-                        <input asp-for="DerivationScheme" class="form-control" style="cursor:copy" readonly />
-                        <button type="button" class="input-group-text btn btn-outline-secondary" data-clipboard-confirm style="min-width:8em;">Copy</button>
+                        <input asp-for="DerivationScheme" class="form-control" readonly />
+                        <button type="button" class="btn btn-outline-secondary px-3">
+                            <vc:icon symbol="copy" />
+                        </button>
                     </div>
                 </div>
                 @if (!string.IsNullOrEmpty(Model.DerivationSchemeInput) && Model.DerivationSchemeInput != Model.DerivationScheme)
@@ -97,8 +101,10 @@
                     <div class="form-group">
                         <label asp-for="DerivationSchemeInput" class="form-label"></label>
                         <div class="input-group" data-clipboard="@Model.DerivationSchemeInput">
-                            <input asp-for="DerivationSchemeInput" class="form-control" style="cursor:copy" readonly/>
-                            <button type="button" class="input-group-text btn btn-outline-secondary" data-clipboard-confirm style="min-width:8em;">Copy</button>
+                            <input asp-for="DerivationSchemeInput" class="form-control" readonly/>
+                            <button type="button" class="btn btn-outline-secondary px-3">
+                                <vc:icon symbol="copy" />
+                            </button>
                         </div>
                     </div>
                 }
@@ -113,8 +119,10 @@
                             </button>
                         </div>
                         <div class="input-group" data-clipboard="@Model.AccountKeys[i].AccountKey">
-                            <input asp-for="@Model.AccountKeys[i].AccountKey" class="form-control" style="cursor:copy" readonly/>
-                            <button type="button" class="input-group-text btn btn-outline-secondary" data-clipboard-confirm style="min-width:8em;">Copy</button>
+                            <input asp-for="@Model.AccountKeys[i].AccountKey" class="form-control" readonly/>
+                            <button type="button" class="btn btn-outline-secondary px-3">
+                                <vc:icon symbol="copy" />
+                            </button>
                         </div>
                     </div>
                     <div class="row">
@@ -146,8 +154,8 @@
                         <div class="d-flex align-items-center">
                             <input asp-for="PayJoinEnabled" type="checkbox" class="btcpay-toggle me-2"/>
                             <label asp-for="PayJoinEnabled" class="form-label mb-0 me-1"></label>
-                            <a href="https://docs.btcpayserver.org/Payjoin/" target="_blank" rel="noreferrer noopener">
-                                <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+                            <a href="https://docs.btcpayserver.org/Payjoin/" target="_blank" rel="noreferrer noopener" title="More information...">
+                                <vc:icon symbol="info"/>
                             </a>
                         </div>
                         <span asp-validation-for="PayJoinEnabled" class="text-danger"></span>
@@ -155,8 +163,8 @@
                 }
                 <div class="form-group">
                     <label asp-for="MonitoringExpiration" class="form-label"></label>
-                    <a href="https://docs.btcpayserver.org/FAQ/Stores/#payment-invalid-if-transactions-fails-to-confirm-minutes-after-invoice-expiration" target="_blank" rel="noreferrer noopener">
-                        <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+                    <a href="https://docs.btcpayserver.org/FAQ/Stores/#payment-invalid-if-transactions-fails-to-confirm-minutes-after-invoice-expiration" target="_blank" rel="noreferrer noopener" title="More information...">
+                        <vc:icon symbol="info"/>
                     </a>
                     <div class="input-group">
                         <input inputmode="numeric" asp-for="MonitoringExpiration" class="form-control" style="max-width:10ch;"/>
@@ -166,8 +174,8 @@
                 </div>
                 <div class="form-group">
                     <label asp-for="SpeedPolicy" class="form-label"></label>
-                    <a href="https://docs.btcpayserver.org/FAQ/Stores/#consider-the-invoice-confirmed-when-the-payment-transaction" target="_blank" rel="noreferrer noopener">
-                        <span class="fa fa-question-circle-o text-secondary" title="More information..."></span>
+                    <a href="https://docs.btcpayserver.org/FAQ/Stores/#consider-the-invoice-confirmed-when-the-payment-transaction" target="_blank" rel="noreferrer noopener" title="More information...">
+                        <vc:icon symbol="info"/>
                     </a>
                     <select asp-for="SpeedPolicy" class="form-select w-auto" onchange="document.getElementById('unconfirmed-warning').hidden = this.value !== '0';">
                         <option value="0">Is unconfirmed</option>

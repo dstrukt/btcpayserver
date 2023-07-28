@@ -6,11 +6,13 @@ using System.Threading.Tasks;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
+using BTCPayServer.Hosting;
 using BTCPayServer.Lightning;
 using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Models.WalletViewModels;
 using BTCPayServer.Payments;
+using BTCPayServer.Plugins.PointOfSale;
 using BTCPayServer.Plugins.PointOfSale.Controllers;
 using BTCPayServer.Plugins.PointOfSale.Models;
 using BTCPayServer.Services.Apps;
@@ -50,6 +52,7 @@ namespace BTCPayServer.Tests
                 user.RegisterDerivationScheme(cryptoCode);
                 user.RegisterDerivationScheme("LTC");
                 user.RegisterLightningNode(cryptoCode, LightningConnectionType.CLightning);
+                user.SetLNUrl("BTC", false);
                 var btcNetwork = tester.PayTester.Networks.GetNetwork<BTCPayNetwork>(cryptoCode);
                 var invoice = await user.BitPay.CreateInvoiceAsync(
                     new Invoice
@@ -243,7 +246,7 @@ namespace BTCPayServer.Tests
                 await tester.EnsureChannelsSetup();
                 var user = tester.NewAccount();
                 user.GrantAccess(true);
-                user.RegisterLightningNode("BTC", LightningConnectionType.Charge);
+                user.RegisterLightningNode("BTC");
                 user.RegisterDerivationScheme("BTC");
                 user.RegisterDerivationScheme("LTC");
 
@@ -386,7 +389,7 @@ namespace BTCPayServer.Tests
             s.Driver.FindElement(By.Id("BOLT11Expiration")).SendKeys("5" + Keys.Enter);
             s.GoToInvoice(invoice.Id);
             s.Driver.FindElement(By.Id("IssueRefund")).Click();
-            
+
             if (multiCurrency)
             {
                 s.Driver.WaitUntilAvailable(By.Id("RefundForm"), TimeSpan.FromSeconds(1));
@@ -396,21 +399,21 @@ namespace BTCPayServer.Tests
             }
 
             s.Driver.WaitUntilAvailable(By.Id("RefundForm"), TimeSpan.FromSeconds(1));
-            Assert.Contains("$5,500.00", s.Driver.PageSource); // Should propose reimburse in fiat
-            Assert.Contains("1.10000000 ₿", s.Driver.PageSource); // Should propose reimburse in BTC at the rate of before
-            Assert.Contains("2.20000000 ₿", s.Driver.PageSource); // Should propose reimburse in BTC at the current rate
+            Assert.Contains("5,500.00 USD", s.Driver.PageSource); // Should propose reimburse in fiat
+            Assert.Contains("1.10000000 BTC", s.Driver.PageSource); // Should propose reimburse in BTC at the rate of before
+            Assert.Contains("2.20000000 BTC", s.Driver.PageSource); // Should propose reimburse in BTC at the current rate
             s.Driver.WaitForAndClick(By.Id(rateSelection));
             s.Driver.FindElement(By.Id("ok")).Click();
-            
+
             s.Driver.WaitUntilAvailable(By.Id("Destination"), TimeSpan.FromSeconds(1));
             Assert.Contains("pull-payments", s.Driver.Url);
             if (rateSelection == "FiatOption")
-                Assert.Contains("$5,500.00", s.Driver.PageSource);
+                Assert.Contains("5,500.00 USD", s.Driver.PageSource);
             if (rateSelection == "CurrentOption")
-                Assert.Contains("2.20000000 ₿", s.Driver.PageSource);
+                Assert.Contains("2.20000000 BTC", s.Driver.PageSource);
             if (rateSelection == "RateThenOption")
-                Assert.Contains("1.10000000 ₿", s.Driver.PageSource);
-            
+                Assert.Contains("1.10000000 BTC", s.Driver.PageSource);
+
             s.GoToInvoice(invoice.Id);
             s.Driver.FindElement(By.Id("IssueRefund")).Click();
             s.Driver.WaitUntilAvailable(By.Id("Destination"), TimeSpan.FromSeconds(1));
@@ -584,7 +587,7 @@ namespace BTCPayServer.Tests
                 Assert.True(invoice.SupportedTransactionCurrencies["LTC"].Enabled);
                 Assert.True(invoice.PaymentSubtotals.ContainsKey("LTC"));
                 Assert.True(invoice.PaymentTotals.ContainsKey("LTC"));
-                
+
                 // Check if we can disable LTC
                 invoice = await user.BitPay.CreateInvoiceAsync(
                     new Invoice
@@ -622,10 +625,11 @@ namespace BTCPayServer.Tests
                 var apps = user.GetController<UIAppsController>();
                 var pos = user.GetController<UIPointOfSaleController>();
                 var vm = Assert.IsType<CreateAppViewModel>(Assert.IsType<ViewResult>(apps.CreateApp(user.StoreId)).Model);
-                var appType = AppType.PointOfSale.ToString();
+                var appType = PointOfSaleAppType.AppType;
                 vm.AppName = "test";
                 vm.SelectedAppType = appType;
-                Assert.IsType<RedirectToActionResult>(apps.CreateApp(user.StoreId, vm).Result);
+                var redirect = Assert.IsType<RedirectResult>(apps.CreateApp(user.StoreId, vm).Result);
+                Assert.EndsWith("/settings/pos", redirect.Url);
                 var appList = Assert.IsType<ListAppsViewModel>(Assert.IsType<ViewResult>(apps.ListApps(user.StoreId).Result).Model);
                 var app = appList.Apps[0];
                 var appData = new AppData { Id = app.Id, StoreDataId = app.StoreId, Name = app.AppName, AppType = appType };
@@ -648,6 +652,7 @@ donation:
   price: 1.02
   custom: true
 ";
+                vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
                 vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
                 Assert.Equal("hello", vmpos.Title);
@@ -659,13 +664,12 @@ donation:
                 Assert.Equal("good apple", vmview.Items[0].Title);
                 Assert.Equal("orange", vmview.Items[1].Title);
                 Assert.Equal(10.0m, vmview.Items[1].Price.Value);
-                Assert.Equal("$5.00", vmview.Items[0].Price.Formatted);
                 Assert.Equal("{0} Purchase", vmview.ButtonText);
                 Assert.Equal("Nicolas Sexy Hair", vmview.CustomButtonText);
                 Assert.Equal("Wanna tip?", vmview.CustomTipText);
                 Assert.Equal("15,18,20", string.Join(',', vmview.CustomTipPercentages));
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 0, null, null, null, null, "orange").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 0, choiceKey: "orange").Result);
 
                 //
                 var invoices = await user.BitPay.GetInvoicesAsync();
@@ -674,16 +678,16 @@ donation:
                 Assert.Equal("CAD", orangeInvoice.Currency);
                 Assert.Equal("orange", orangeInvoice.ItemDesc);
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 0, null, null, null, null, "apple").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 0, choiceKey: "apple").Result);
 
                 invoices = user.BitPay.GetInvoices();
                 var appleInvoice = invoices.SingleOrDefault(invoice => invoice.ItemCode.Equals("apple"));
                 Assert.NotNull(appleInvoice);
                 Assert.Equal("good apple", appleInvoice.ItemDesc);
-                
+
                 // testing custom amount
                 var action = Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 6.6m, null, null, null, null, "donation").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 6.6m, choiceKey: "donation").Result);
                 Assert.Equal(nameof(UIInvoiceController.Checkout), action.ActionName);
                 invoices = user.BitPay.GetInvoices();
                 var donationInvoice = invoices.Single(i => i.Price == 6.6m);
@@ -720,6 +724,7 @@ donation:
   price: 1.02
   custom: true
 ";
+                    vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                     Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
                     publicApps = user.GetController<UIPointOfSaleController>();
                     vmview = await publicApps.ViewPointOfSale(app.Id, PosViewType.Cart).AssertViewModelAsync<ViewPointOfSaleViewModel>();
@@ -735,7 +740,7 @@ donation:
                     Assert.Equal(test.ExpectedDivisibility, vmview.CurrencyInfo.Divisibility);
                     Assert.Equal(test.ExpectedSymbolSpace, vmview.CurrencyInfo.SymbolSpace);
                 }
-                
+
                 //test inventory related features
                 vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
                 vmpos.Title = "hello";
@@ -747,26 +752,28 @@ inventoryitem:
   inventory: 1
 noninventoryitem:
   price: 10.0";
+                
+                vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
 
                 //inventoryitem has 1 item available
                 await tester.WaitForEvent<AppInventoryUpdaterHostedService.UpdateAppInventory>(() =>
                 {
                     Assert.IsType<RedirectToActionResult>(publicApps
-                        .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "inventoryitem").Result);
+                        .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "inventoryitem").Result);
                     return Task.CompletedTask;
                 });
-                
+
                 //we already bought all available stock so this should fail
                 await Task.Delay(100);
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "inventoryitem").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "inventoryitem").Result);
 
                 //inventoryitem has unlimited items available
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "noninventoryitem").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "noninventoryitem").Result);
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "noninventoryitem").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "noninventoryitem").Result);
 
                 //verify invoices where created
                 invoices = user.BitPay.GetInvoices();
@@ -777,15 +784,13 @@ noninventoryitem:
 
                 //let's mark the inventoryitem invoice as invalid, this should return the item to back in stock
                 var controller = tester.PayTester.GetController<UIInvoiceController>(user.UserId, user.StoreId);
-                var appService = tester.PayTester.GetService<AppService>();
-                var eventAggregator = tester.PayTester.GetService<EventAggregator>();
                 Assert.IsType<JsonResult>(await controller.ChangeInvoiceState(inventoryItemInvoice.Id, "invalid"));
                 //check that item is back in stock
                 await TestUtils.EventuallyAsync(async () =>
                 {
                     vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
                     Assert.Equal(1,
-                        appService.Parse(vmpos.Template, "BTC").Single(item => item.Id == "inventoryitem").Inventory);
+                        AppService.Parse(vmpos.Template).Single(item => item.Id == "inventoryitem").Inventory);
                 }, 10000);
 
                 //test payment methods option
@@ -800,11 +805,13 @@ btconly:
     - BTC
 normal:
   price: 1.0";
+
+                vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "btconly").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "btconly").Result);
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, null, null, null, null, "normal").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "normal").Result);
                 invoices = user.BitPay.GetInvoices();
                 var normalInvoice = invoices.Single(invoice => invoice.ItemCode == "normal");
                 var btcOnlyInvoice = invoices.Single(invoice => invoice.ItemCode == "btconly");
@@ -819,13 +826,13 @@ normal:
                     normalInvoice.CryptoInfo,
                     s => PaymentTypes.BTCLike.ToString() == s.PaymentType && new[] { "BTC", "LTC" }.Contains(
                              s.CryptoCode));
-                
+
                 //test topup option
                 vmpos.Template = @"
 a:
   price: 1000.0
   title: good apple
-  
+
 b:
   price: 10.0
   custom: false
@@ -843,21 +850,22 @@ f:
 g:
   custom: topup
 ";
-                
+
+                vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
                 vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
                 Assert.DoesNotContain("custom", vmpos.Template);
-                var items = appService.Parse(vmpos.Template, vmpos.Currency);
-                Assert.Contains(items, item => item.Id == "a" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "b" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "c" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Minimum);
-                Assert.Contains(items, item => item.Id == "d" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "e" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Minimum);
-                Assert.Contains(items, item => item.Id == "f" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Topup);
-                Assert.Contains(items, item => item.Id == "g" && item.Price.Type == ViewPointOfSaleViewModel.Item.ItemPrice.ItemPriceType.Topup);
+                var items = AppService.Parse(vmpos.Template);
+                Assert.Contains(items, item => item.Id == "a" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "b" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "c" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Minimum);
+                Assert.Contains(items, item => item.Id == "d" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "e" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Minimum);
+                Assert.Contains(items, item => item.Id == "f" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup);
+                Assert.Contains(items, item => item.Id == "g" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup);
                 
                 Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Static, null, null, null, null, null, "g").Result);
+                    .ViewPointOfSale(app.Id, PosViewType.Static, choiceKey: "g").Result);
                 invoices = user.BitPay.GetInvoices();
                 var topupInvoice = invoices.Single(invoice => invoice.ItemCode == "g");
                 Assert.Equal(0, topupInvoice.Price);

@@ -77,33 +77,44 @@ namespace BTCPayServer.HostedServices
                             foreach (var walletObjectData in walletObjectDatas)
                             {
                                 await _walletRepository.EnsureWalletObjectLink(txWalletObject, walletObjectData.Key);
+                                //if the object is an address, we also link the labels to the tx
+                                if (walletObjectData.Value.Type == WalletObjectData.Types.Address)
+                                {
+                                    var neighbours = walletObjectData.Value.GetNeighbours().ToArray();
+                                    var labels = neighbours
+                                        .Where(data => data.Type == WalletObjectData.Types.Label).Select(data =>
+                                            new WalletObjectId(walletObjectDatas.Key, data.Type, data.Id));
+                                    foreach (var label in labels)
+                                    {
+                                        await _walletRepository.EnsureWalletObjectLink(label, txWalletObject);
+                                        var attachments = neighbours.Where(data => data.Type == label.Id);
+                                        foreach (var attachment in attachments)
+                                        {
+                                            await _walletRepository.EnsureWalletObjectLink(new WalletObjectId(walletObjectDatas.Key, attachment.Type, attachment.Id), txWalletObject);
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         break;
                     }
-                case InvoiceEvent {Name: InvoiceEvent.ReceivedPayment} invoiceEvent when
+                case InvoiceEvent { Name: InvoiceEvent.ReceivedPayment } invoiceEvent when
                     invoiceEvent.Payment.GetPaymentMethodId()?.PaymentType == BitcoinPaymentType.Instance &&
                     invoiceEvent.Payment.GetCryptoPaymentData() is BitcoinLikePaymentData bitcoinLikePaymentData:
-                {
-                    var walletId = new WalletId(invoiceEvent.Invoice.StoreId, invoiceEvent.Payment.GetCryptoCode());
-                    var transactionId = bitcoinLikePaymentData.Outpoint.Hash;
-                    var labels = new List<Attachment>
+                    {
+                        var walletId = new WalletId(invoiceEvent.Invoice.StoreId, invoiceEvent.Payment.Currency);
+                        var transactionId = bitcoinLikePaymentData.Outpoint.Hash;
+                        var labels = new List<Attachment>
                     {
                         Attachment.Invoice(invoiceEvent.Invoice.Id)
                     };
-                    foreach (var paymentId in PaymentRequestRepository.GetPaymentIdsFromInternalTags(invoiceEvent.Invoice))
-                    {
-                        labels.Add(Attachment.PaymentRequest(paymentId));
-                    }
-                    foreach (var appId in AppService.GetAppInternalTags(invoiceEvent.Invoice))
-                    {
-                        labels.Add(Attachment.App(appId));
-                    }
+                        labels.AddRange(PaymentRequestRepository.GetPaymentIdsFromInternalTags(invoiceEvent.Invoice).Select(Attachment.PaymentRequest));
+                        labels.AddRange(AppService.GetAppInternalTags(invoiceEvent.Invoice).Select(Attachment.App));
 
-                    await _walletRepository.AddWalletTransactionAttachment(walletId, transactionId, labels);
-                    break;
-                }
+                        await _walletRepository.AddWalletTransactionAttachment(walletId, transactionId, labels);
+                        break;
+                    }
             }
         }
 

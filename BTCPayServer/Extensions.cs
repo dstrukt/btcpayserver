@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using BTCPayServer.BIP78.Sender;
 using BTCPayServer.Configuration;
 using BTCPayServer.Data;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
 using BTCPayServer.Logging;
 using BTCPayServer.Models;
@@ -21,13 +22,16 @@ using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
 using BTCPayServer.Security;
 using BTCPayServer.Services.Invoices;
+using BTCPayServer.Services.Reporting;
 using BTCPayServer.Services.Wallets;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NBitcoin;
 using NBitcoin.Payment;
+using NBitpayClient;
 using NBXplorer.Models;
 using Newtonsoft.Json;
 using InvoiceCryptoInfo = BTCPayServer.Services.Invoices.InvoiceCryptoInfo;
@@ -36,6 +40,33 @@ namespace BTCPayServer
 {
     public static class Extensions
     {
+        public static DateTimeOffset TruncateMilliSeconds(this DateTimeOffset dt) => new (dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, 0, dt.Offset);
+        public static decimal? GetDue(this InvoiceCryptoInfo invoiceCryptoInfo)
+        {
+            if (invoiceCryptoInfo is null)
+                return null;
+            if (decimal.TryParse(invoiceCryptoInfo.Due, NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+                return v;
+            return null;
+        }
+        public static Task<BufferizedFormFile> Bufferize(this IFormFile formFile)
+        {
+            return BufferizedFormFile.Bufferize(formFile);
+        }
+        /// <summary>
+        /// Unescape Uri string for %2F
+        /// See details at: https://github.com/dotnet/aspnetcore/issues/14170#issuecomment-533342396
+        /// </summary>
+        /// <param name="uriString">The Uri string.</param>
+        /// <returns>Unescaped back slash Uri string.</returns>
+        public static string UnescapeBackSlashUriString(string uriString)
+        {
+            if (uriString == null)
+            {
+                return null;
+            }
+            return uriString.Replace("%2f", "%2F").Replace("%2F", "/");
+        }
         public static bool IsValidEmail(this string email)
         {
             if (string.IsNullOrEmpty(email))
@@ -45,7 +76,7 @@ namespace BTCPayServer
 
             return MailboxAddressValidator.TryParse(email, out var ma) && ma.ToString() == ma.Address;
         }
-        
+
         public static bool TryGetPayjoinEndpoint(this BitcoinUrlBuilder bip21, out Uri endpoint)
         {
             endpoint = bip21.UnknownParameters.TryGetValue($"{PayjoinClient.BIP21EndpointKey}", out var uri) ? new Uri(uri, UriKind.Absolute) : null;
@@ -82,26 +113,49 @@ namespace BTCPayServer
             builder.Append(CultureInfo.InvariantCulture, $"{expiration.Minutes.ToString("00", CultureInfo.InvariantCulture)}:{expiration.Seconds.ToString("00", CultureInfo.InvariantCulture)}");
             return builder.ToString();
         }
-        
+
         public static decimal RoundUp(decimal value, int precision)
         {
-            for (int i = 0; i < precision; i++)
+            try
             {
-                value = value * 10m;
+                for (int i = 0; i < precision; i++)
+                {
+                    value = value * 10m;
+                }
+                value = Math.Ceiling(value);
+                for (int i = 0; i < precision; i++)
+                {
+                    value = value / 10m;
+                }
+                return value;
             }
-            value = Math.Ceiling(value);
-            for (int i = 0; i < precision; i++)
+            catch (OverflowException)
             {
-                value = value / 10m;
+                return value;
             }
-            return value;
+        }
+
+        public static IServiceCollection AddReportProvider<T>(this IServiceCollection services)
+    where T : ReportProvider
+        {
+            services.AddSingleton<T>();
+            services.AddSingleton<ReportProvider, T>();
+            return services;
+        }
+
+        public static IServiceCollection AddScheduledTask<T>(this IServiceCollection services, TimeSpan every)
+            where T : class, IPeriodicTask
+        {
+            services.AddSingleton<T>();
+            services.AddTransient<ScheduledTask>(o => new ScheduledTask(typeof(T), every));
+            return services;
         }
 
         public static PaymentMethodId GetpaymentMethodId(this InvoiceCryptoInfo info)
         {
             return new PaymentMethodId(info.CryptoCode, PaymentTypes.Parse(info.PaymentType));
         }
-        
+
         public static async Task CloseSocket(this WebSocket webSocket)
         {
             try
@@ -345,20 +399,6 @@ namespace BTCPayServer
                 }
             };
             return controller.View("PostRedirect", redirectVm);
-        }
-
-        public static string ToSql<TEntity>(this IQueryable<TEntity> query) where TEntity : class
-        {
-            var enumerator = query.Provider.Execute<IEnumerable<TEntity>>(query.Expression).GetEnumerator();
-            var relationalCommandCache = enumerator.Private("_relationalCommandCache");
-            var selectExpression = relationalCommandCache.Private<Microsoft.EntityFrameworkCore.Query.SqlExpressions.SelectExpression>("_selectExpression");
-            var factory = relationalCommandCache.Private<Microsoft.EntityFrameworkCore.Query.IQuerySqlGeneratorFactory>("_querySqlGeneratorFactory");
-
-            var sqlGenerator = factory.Create();
-            var command = sqlGenerator.GetCommand(selectExpression);
-
-            string sql = command.CommandText;
-            return sql;
         }
 
         public static BTCPayNetworkProvider ConfigureNetworkProvider(this IConfiguration configuration, Logs logs)

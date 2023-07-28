@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using BTCPayServer.Data.Data;
+using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -17,6 +17,7 @@ public class LightningAutomatedPayoutSenderFactory : IPayoutProcessorFactory
     private readonly IServiceProvider _serviceProvider;
     private readonly LinkGenerator _linkGenerator;
 
+    
     public LightningAutomatedPayoutSenderFactory(BTCPayNetworkProvider btcPayNetworkProvider, IServiceProvider serviceProvider, LinkGenerator linkGenerator)
     {
         _btcPayNetworkProvider = btcPayNetworkProvider;
@@ -28,8 +29,8 @@ public class LightningAutomatedPayoutSenderFactory : IPayoutProcessorFactory
 
     public string ConfigureLink(string storeId, PaymentMethodId paymentMethodId, HttpRequest request)
     {
-        return _linkGenerator.GetUriByAction("Configure", 
-            "UILightningAutomatedPayoutProcessors",new
+        return _linkGenerator.GetUriByAction("Configure",
+            "UILightningAutomatedPayoutProcessors", new
             {
                 storeId,
                 cryptoCode = paymentMethodId.CryptoCode
@@ -39,7 +40,7 @@ public class LightningAutomatedPayoutSenderFactory : IPayoutProcessorFactory
     public static string ProcessorName => nameof(LightningAutomatedPayoutSenderFactory);
     public IEnumerable<PaymentMethodId> GetSupportedPaymentMethods()
     {
-        return  _btcPayNetworkProvider.GetAll().OfType<BTCPayNetwork>()
+        return _btcPayNetworkProvider.GetAll().OfType<BTCPayNetwork>()
             .Where(network => network.SupportLightning)
             .Select(network =>
                 new PaymentMethodId(network.CryptoCode, LightningPaymentType.Instance));

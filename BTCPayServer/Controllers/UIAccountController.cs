@@ -1,16 +1,18 @@
 using System;
 using System.Globalization;
-using System.Security.Claims;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
+using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
 using BTCPayServer.Fido2;
 using BTCPayServer.Fido2.Models;
+using BTCPayServer.Filters;
 using BTCPayServer.Logging;
 using BTCPayServer.Models.AccountViewModels;
 using BTCPayServer.Services;
@@ -81,6 +83,24 @@ namespace BTCPayServer.Controllers
         public string ErrorMessage
         {
             get; set;
+        }
+
+        [HttpGet("/cheat/permissions")]
+        [HttpGet("/cheat/permissions/stores/{storeId}")]
+        [CheatModeRoute]
+        public async Task<IActionResult> CheatPermissions([FromServices] IAuthorizationService authorizationService, string storeId = null)
+        {
+            var vm = new CheatPermissionsViewModel();
+            vm.StoreId = storeId;
+            var results = new System.Collections.Generic.List<(string, Task<AuthorizationResult>)>();
+            foreach (var p in Policies.AllPolicies.Concat(new[] { Policies.CanModifyStoreSettingsUnscoped }))
+            {
+                results.Add((p, authorizationService.AuthorizeAsync(User, storeId, p)));
+            }
+            await Task.WhenAll(results.Select(r => r.Item2));
+            results = results.OrderBy(r => r.Item1).ToList();
+            vm.Permissions = results.Select(r => (r.Item1, r.Item2.Result)).ToArray();
+            return View(vm);
         }
 
         [HttpGet("/login")]
@@ -160,7 +180,7 @@ namespace BTCPayServer.Controllers
 
                 var fido2Devices = await _fido2Service.HasCredentials(user.Id);
                 var lnurlAuthCredentials = await _lnurlAuthService.HasCredentials(user.Id);
-                if (!await _userManager.IsLockedOutAsync(user) &&  (fido2Devices  || lnurlAuthCredentials))
+                if (!await _userManager.IsLockedOutAsync(user) && (fido2Devices || lnurlAuthCredentials))
                 {
                     if (await _userManager.CheckPasswordAsync(user, model.Password))
                     {
@@ -179,8 +199,8 @@ namespace BTCPayServer.Controllers
                         return View("SecondaryLogin", new SecondaryLoginViewModel()
                         {
                             LoginWith2FaViewModel = twoFModel,
-                            LoginWithFido2ViewModel = fido2Devices? await BuildFido2ViewModel(model.RememberMe, user): null, 
-                            LoginWithLNURLAuthViewModel = lnurlAuthCredentials? await BuildLNURLAuthViewModel(model.RememberMe, user): null, 
+                            LoginWithFido2ViewModel = fido2Devices ? await BuildFido2ViewModel(model.RememberMe, user) : null,
+                            LoginWithLNURLAuthViewModel = lnurlAuthCredentials ? await BuildLNURLAuthViewModel(model.RememberMe, user) : null,
                         });
                     }
                     else
@@ -212,7 +232,7 @@ namespace BTCPayServer.Controllers
                 if (result.IsLockedOut)
                 {
                     _logger.LogWarning($"User '{user.Id}' account locked out.");
-                    return RedirectToAction(nameof(Lockout), new { user.LockoutEnd});
+                    return RedirectToAction(nameof(Lockout), new { user.LockoutEnd });
                 }
                 else
                 {
@@ -256,18 +276,18 @@ namespace BTCPayServer.Controllers
                 }
                 return new LoginWithLNURLAuthViewModel()
                 {
-                    
+
                     RememberMe = rememberMe,
                     UserId = user.Id,
                     LNURLEndpoint = new Uri(_linkGenerator.GetUriByAction(
                     action: nameof(UILNURLAuthController.LoginResponse),
                     controller: "UILNURLAuth",
-                    values: new { userId = user.Id, action="login", tag="login", k1= Encoders.Hex.EncodeData(r)  }, Request.Scheme, Request.Host, Request.PathBase))
+                    values: new { userId = user.Id, action = "login", tag = "login", k1 = Encoders.Hex.EncodeData(r) }, Request.Scheme, Request.Host, Request.PathBase))
                 };
             }
             return null;
         }
-        
+
         [HttpPost("/login/lnurlauth")]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
@@ -309,7 +329,7 @@ namespace BTCPayServer.Controllers
             ModelState.AddModelError(string.Empty, errorMessage);
             return View("SecondaryLogin", new SecondaryLoginViewModel()
             {
-                
+
                 LoginWithFido2ViewModel = (await _fido2Service.HasCredentials(user.Id)) ? await BuildFido2ViewModel(viewModel.RememberMe, user) : null,
                 LoginWithLNURLAuthViewModel = viewModel,
                 LoginWith2FaViewModel = !user.TwoFactorEnabled
@@ -320,7 +340,7 @@ namespace BTCPayServer.Controllers
                     }
             });
         }
-        
+
 
         [HttpPost("/login/fido2")]
         [AllowAnonymous]
@@ -431,7 +451,7 @@ namespace BTCPayServer.Controllers
             else if (result.IsLockedOut)
             {
                 _logger.LogWarning("User with ID {UserId} account locked out.", user.Id);
-                return RedirectToAction(nameof(Lockout), new { user.LockoutEnd});
+                return RedirectToAction(nameof(Lockout), new { user.LockoutEnd });
             }
             else
             {
@@ -500,8 +520,8 @@ namespace BTCPayServer.Controllers
             if (result.IsLockedOut)
             {
                 _logger.LogWarning("User with ID {UserId} account locked out.", user.Id);
-                
-                return RedirectToAction(nameof(Lockout), new { user.LockoutEnd});
+
+                return RedirectToAction(nameof(Lockout), new { user.LockoutEnd });
             }
             else
             {
@@ -758,22 +778,21 @@ namespace BTCPayServer.Controllers
             {
                 return Redirect(returnUrl);
             }
-            else
-            {
-                // After login, if there is an app on "/", we should redirect to BTCPay explicit home route, and not to the app.
-                if (PoliciesSettings.RootAppId is not null && PoliciesSettings.RootAppType is not null)
-                    return RedirectToAction(nameof(UIHomeController.Home), "UIHome");
-                if (PoliciesSettings.DomainToAppMapping is { } mapping)
-                {
-                    var matchedDomainMapping = mapping.FirstOrDefault(item =>
-                    item.Domain.Equals(this.HttpContext.Request.Host.Host, StringComparison.InvariantCultureIgnoreCase));
-                    if (matchedDomainMapping is not null)
-                        return RedirectToAction(nameof(UIHomeController.Home), "UIHome");
-                }
-                return RedirectToAction(nameof(UIHomeController.Index), "UIHome");
-            }
-        }
 
+            // After login, if there is an app on "/", we should redirect to BTCPay explicit home route, and not to the app.
+            if (PoliciesSettings.RootAppId is not null && PoliciesSettings.RootAppType is not null)
+                return RedirectToAction(nameof(UIHomeController.Home), "UIHome");
+
+            if (PoliciesSettings.DomainToAppMapping is { } mapping)
+            {
+                var matchedDomainMapping = mapping.FirstOrDefault(item =>
+                    item.Domain.Equals(HttpContext.Request.Host.Host, StringComparison.InvariantCultureIgnoreCase));
+                if (matchedDomainMapping is not null)
+                    return RedirectToAction(nameof(UIHomeController.Home), "UIHome");
+            }
+
+            return RedirectToAction(nameof(UIHomeController.Index), "UIHome");
+        }
 
         private bool CanLoginOrRegister()
         {

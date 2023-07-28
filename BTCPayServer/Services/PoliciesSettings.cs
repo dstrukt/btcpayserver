@@ -44,8 +44,7 @@ namespace BTCPayServer.Services
 
         [Display(Name = "Display app on website root")]
         public string RootAppId { get; set; }
-        public AppType? RootAppType { get; set; }
-
+        public string RootAppType { get; set; }
 
         [Display(Name = "Override the block explorers used")]
         public List<BlockExplorerOverrideItem> BlockExplorerLinks { get; set; } = new List<BlockExplorerOverrideItem>();
@@ -53,6 +52,9 @@ namespace BTCPayServer.Services
         public List<DomainToAppMappingItem> DomainToAppMapping { get; set; } = new List<DomainToAppMappingItem>();
         [Display(Name = "Enable experimental features")]
         public bool Experimental { get; set; }
+        
+        [Display(Name = "Default role for users on a new store")]
+        public string DefaultRole { get; set; }
 
         public class BlockExplorerOverrideItem
         {
@@ -62,10 +64,10 @@ namespace BTCPayServer.Services
 
         public class DomainToAppMappingItem
         {
-            [Display(Name = "Domain")] [Required] [HostName] public string Domain { get; set; }
-            [Display(Name = "App")] [Required] public string AppId { get; set; }
+            [Display(Name = "Domain")][Required][HostName] public string Domain { get; set; }
+            [Display(Name = "App")][Required] public string AppId { get; set; }
 
-            public AppType AppType { get; set; }
+            public string AppType { get; set; }
         }
     }
 }

@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using BTCPayServer.Data.Data;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
@@ -30,7 +30,12 @@ namespace BTCPayServer.Data
         {
             _designTime = designTime;
         }
-
+#nullable enable
+        public async Task<string?> GetMigrationState()
+        {
+            return (await Settings.FromSqlRaw("SELECT \"Id\", \"Value\" FROM \"Settings\" WHERE \"Id\"='MigrationData'").AsNoTracking().FirstOrDefaultAsync())?.Value;
+        }
+#nullable restore
         public DbSet<AddressInvoiceData> AddressInvoices { get; set; }
         public DbSet<APIKeyData> ApiKeys { get; set; }
         public DbSet<AppData> Apps { get; set; }
@@ -59,6 +64,7 @@ namespace BTCPayServer.Data
         public DbSet<U2FDevice> U2FDevices { get; set; }
         public DbSet<Fido2Credential> Fido2Credentials { get; set; }
         public DbSet<UserStore> UserStore { get; set; }
+        public DbSet<StoreRole> StoreRoles { get; set; }
         [Obsolete]
         public DbSet<WalletData> Wallets { get; set; }
         public DbSet<WalletObjectData> WalletObjects { get; set; }
@@ -67,8 +73,9 @@ namespace BTCPayServer.Data
         public DbSet<WalletTransactionData> WalletTransactions { get; set; }
         public DbSet<WebhookDeliveryData> WebhookDeliveries { get; set; }
         public DbSet<WebhookData> Webhooks { get; set; }
-        public DbSet<LightningAddressData> LightningAddresses{ get; set; }
+        public DbSet<LightningAddressData> LightningAddresses { get; set; }
         public DbSet<PayoutProcessorData> PayoutProcessors { get; set; }
+        public DbSet<FormData> Forms { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
@@ -83,23 +90,23 @@ namespace BTCPayServer.Data
 
             // some of the data models don't have OnModelCreating for now, commenting them
 
-            ApplicationUser.OnModelCreating(builder);
+            ApplicationUser.OnModelCreating(builder, Database);
             AddressInvoiceData.OnModelCreating(builder);
-            APIKeyData.OnModelCreating(builder);
+            APIKeyData.OnModelCreating(builder, Database);
             AppData.OnModelCreating(builder);
-            CustodianAccountData.OnModelCreating(builder);
+            CustodianAccountData.OnModelCreating(builder, Database);
             //StoredFile.OnModelCreating(builder);
             InvoiceEventData.OnModelCreating(builder);
             InvoiceSearchData.OnModelCreating(builder);
             InvoiceWebhookDeliveryData.OnModelCreating(builder);
-            InvoiceData.OnModelCreating(builder);
-            NotificationData.OnModelCreating(builder);
+            InvoiceData.OnModelCreating(builder, Database);
+            NotificationData.OnModelCreating(builder, Database);
             //OffchainTransactionData.OnModelCreating(builder);
             BTCPayServer.Data.PairedSINData.OnModelCreating(builder);
             PairingCodeData.OnModelCreating(builder);
             //PayjoinLock.OnModelCreating(builder);
-            PaymentRequestData.OnModelCreating(builder);
-            PaymentData.OnModelCreating(builder);
+            PaymentRequestData.OnModelCreating(builder, Database);
+            PaymentData.OnModelCreating(builder, Database);
             PayoutData.OnModelCreating(builder);
             PendingInvoiceData.OnModelCreating(builder);
             //PlannedTransaction.OnModelCreating(builder);
@@ -110,7 +117,7 @@ namespace BTCPayServer.Data
             StoreWebhookData.OnModelCreating(builder);
             StoreData.OnModelCreating(builder, Database);
             U2FDevice.OnModelCreating(builder);
-            Fido2Credential.OnModelCreating(builder);
+            Fido2Credential.OnModelCreating(builder, Database);
             BTCPayServer.Data.UserStore.OnModelCreating(builder);
             //WalletData.OnModelCreating(builder);
             WalletObjectData.OnModelCreating(builder, Database);
@@ -118,10 +125,12 @@ namespace BTCPayServer.Data
 #pragma warning disable CS0612 // Type or member is obsolete
             WalletTransactionData.OnModelCreating(builder);
 #pragma warning restore CS0612 // Type or member is obsolete
-            WebhookDeliveryData.OnModelCreating(builder);
-            LightningAddressData.OnModelCreating(builder);
-            PayoutProcessorData.OnModelCreating(builder);
-            //WebhookData.OnModelCreating(builder);
+            WebhookDeliveryData.OnModelCreating(builder, Database);
+            LightningAddressData.OnModelCreating(builder, Database);
+            PayoutProcessorData.OnModelCreating(builder, Database);
+            WebhookData.OnModelCreating(builder, Database);
+            FormData.OnModelCreating(builder, Database);
+            StoreRole.OnModelCreating(builder, Database);
 
 
             if (Database.IsSqlite() && !_designTime)

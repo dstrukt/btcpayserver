@@ -1,8 +1,8 @@
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 @using BTCPayServer.Abstractions.Extensions
 @using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Client
 @using BTCPayServer.Services
-@inject SignInManager<ApplicationUser> SignInManager
 @inject BTCPayServerEnvironment Env
 @inject IFileService FileService
 @model BTCPayServer.Components.StoreSelector.StoreSelectorViewModel
@@ -15,7 +15,8 @@
         @if (Env.NetworkType != NBitcoin.ChainName.Mainnet)
         {
             var type = Env.NetworkType.ToString();
-            <small class="badge bg-warning rounded-pill ms-1 ms-sm-0" title="@type">@type.Replace("Testnet", "TN").Replace("Regtest", "RT")</small>
+            var displayType = type.Replace("Testnet", "TN").Replace("Regtest", "RT").Replace("Signet", "SN");
+            <small class="badge bg-warning rounded-pill ms-1 ms-sm-0" title="@type">@displayType</small>
         }
     }
     private static string StoreName(string title)
@@ -28,18 +29,14 @@
 {
     <a asp-controller="UIHome" asp-action="Index" id="StoreSelectorHome" class="navbar-brand py-2">@{await LogoContent();}</a>
 }
-else if (Model.CurrentStoreIsOwner)
-{
-    <a asp-controller="UIStores" asp-action="Dashboard" asp-route-storeId="@Model.CurrentStoreId" id="StoreSelectorHome" class="navbar-brand py-2">@{await LogoContent();}</a>
-}
 else
 {
-    <a asp-controller="UIInvoice" asp-action="ListInvoices" asp-route-storeId="@Model.CurrentStoreId" id="StoreSelectorHome" class="navbar-brand py-2">@{await LogoContent();}</a>
+    <a asp-controller="UIStores" asp-action="Dashboard" permission="@Policies.CanModifyStoreSettings" asp-route-storeId="@Model.CurrentStoreId" id="StoreSelectorHome" class="navbar-brand py-2">@{await LogoContent();}</a>
+    <a asp-controller="UIInvoice" asp-action="ListInvoices" not-permission="@Policies.CanModifyStoreSettings" asp-route-storeId="@Model.CurrentStoreId" id="StoreSelectorHome" class="navbar-brand py-2">@{await LogoContent();}</a>
 }
-
-<div id="StoreSelector">
-    @if (Model.Options.Count > 0)
-    {
+@if (Model.Options.Any())
+{
+    <div id="StoreSelector">
         <div id="StoreSelectorDropdown" class="dropdown only-for-js">
             <button id="StoreSelectorToggle" class="btn btn-secondary dropdown-toggle rounded-pill px-3 @(Model.CurrentStoreId == null ? "empty-state" : "")" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                 @if (!string.IsNullOrEmpty(Model.CurrentStoreLogoFileId))
@@ -71,9 +68,5 @@ else
                 <li><a asp-controller="UIUserStores" asp-action="CreateStore" class="dropdown-item" id="StoreSelectorCreate">Create Store</a></li>
             </ul>
         </div>
-    }
-    else if (SignInManager.IsSignedIn(User))
-    {
-        <a asp-controller="UIUserStores" asp-action="CreateStore" class="btn btn-primary w-100 rounded-pill" id="StoreSelectorCreate">Create Store</a>
-    }
-</div>
+    </div>
+}

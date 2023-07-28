@@ -18,8 +18,8 @@ namespace BTCPayServer.Services.Invoices
         private readonly InvoiceRepository _invoiceRepository;
         private readonly EventAggregator _eventAggregator;
 
-        public PaymentService(EventAggregator eventAggregator, 
-            ApplicationDbContextFactory applicationDbContextFactory, 
+        public PaymentService(EventAggregator eventAggregator,
+            ApplicationDbContextFactory applicationDbContextFactory,
             BTCPayNetworkProvider btcPayNetworkProvider, InvoiceRepository invoiceRepository)
         {
             _applicationDbContextFactory = applicationDbContextFactory;
@@ -44,12 +44,14 @@ namespace BTCPayServer.Services.Invoices
                 return null;
             InvoiceEntity invoiceEntity = invoice.GetBlob(_btcPayNetworkProvider);
             PaymentMethod paymentMethod = invoiceEntity.GetPaymentMethod(new PaymentMethodId(network.CryptoCode, paymentData.GetPaymentType()));
+            if (paymentMethod is null)
+                return null;
             IPaymentMethodDetails paymentMethodDetails = paymentMethod.GetPaymentMethodDetails();
             PaymentEntity entity = new PaymentEntity
             {
                 Version = 1,
 #pragma warning disable CS0618
-                CryptoCode = network.CryptoCode,
+                Currency = network.CryptoCode,
 #pragma warning restore CS0618
                 ReceivedTime = date.UtcDateTime,
                 Accounted = accounted,
@@ -65,16 +67,15 @@ namespace BTCPayServer.Services.Invoices
                 bitcoinPaymentMethod.NextNetworkFee = bitcoinPaymentMethod.NetworkFeeRate.GetFee(100); // assume price for 100 bytes
                 paymentMethod.SetPaymentMethodDetails(bitcoinPaymentMethod);
                 invoiceEntity.SetPaymentMethod(paymentMethod);
-                invoice.Blob = InvoiceRepository.ToBytes(invoiceEntity, network);
+                invoice.SetBlob(invoiceEntity);
             }
             PaymentData data = new PaymentData
             {
                 Id = paymentData.GetPaymentId(),
-                Blob = InvoiceRepository.ToBytes(entity, entity.Network),
                 InvoiceDataId = invoiceId,
                 Accounted = accounted
             };
-
+            data.SetBlob(entity);
             await context.Payments.AddAsync(data);
 
             InvoiceRepository.AddToTextSearch(context, invoice, paymentData.GetSearchTerms());
@@ -123,7 +124,7 @@ namespace BTCPayServer.Services.Invoices
                 }
 
                 dbPayment.Accounted = payment.Value.entity.Accounted;
-                dbPayment.Blob = InvoiceRepository.ToBytes(payment.Value.entity, payment.Value.entity.Network);
+                dbPayment.SetBlob(payment.Value.entity);
             }
             await context.SaveChangesAsync().ConfigureAwait(false);
             eventsToSend.ForEach(_eventAggregator.Publish);

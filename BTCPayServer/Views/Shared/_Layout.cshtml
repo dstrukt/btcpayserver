@@ -17,7 +17,7 @@
         notificationDisabled = user?.DisabledNotifications == "all";
     }
 	var expectedScheme = _context.HttpContext.Request.Scheme;
-	var expectedHost = _context.HttpContext.Request.Host.ToString();
+	var expectedHost = _context.HttpContext.Request.Host.ToString().ToLower();
 }
 
 <!DOCTYPE html>
@@ -27,7 +27,7 @@
     @await RenderSectionAsync("PageHeadContent", false)
 </head>
 <body class="d-flex flex-column flex-lg-row min-vh-100">
-<header id="mainMenu" class="btcpay-header d-flex flex-column">
+<header id="mainMenu" class="btcpay-header d-flex flex-column d-print-none" v-pre>
     <div id="mainMenuHead">
         <button id="mainMenuToggle" class="mainMenuButton" type="button" data-bs-toggle="offcanvas" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
             <span>Menu</span>
@@ -79,7 +79,7 @@
     {
         <script>
 			var mainContent = document.getElementById("mainContent");
-			if (window.location.protocol != "@(expectedScheme):" || window.location.host != "@expectedHost")
+			if (window.location.protocol != "@(expectedScheme):" || window.location.host.toLowerCase() != "@expectedHost")
 			{
 				var tmpl = document.getElementById("badUrl");
 				mainContent.prepend(tmpl.content.cloneNode(true));

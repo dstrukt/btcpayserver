@@ -22,13 +22,21 @@ namespace BTCPayServer.Models.StoreViewModels
         [MaxLength(500)]
         public string StoreWebsite { get; set; }
 
+        [Display(Name = "Support URL")]
+        [MaxLength(500)]
+        public string StoreSupportUrl { get; set; }
+
+        [Display(Name = "Brand Color")]
+        public string BrandColor { get; set; }
+
         [Display(Name = "Logo")]
         public IFormFile LogoFile { get; set; }
         public string LogoFileId { get; set; }
 
-        [Display(Name = "Brand Color")]
-        public string BrandColor { get; set; }
-        
+        [Display(Name = "Custom CSS")]
+        public IFormFile CssFile { get; set; }
+        public string CssFileId { get; set; }
+
         public bool CanDelete { get; set; }
 
         [Display(Name = "Allow anyone to create invoice")]
@@ -50,7 +58,7 @@ namespace BTCPayServer.Models.StoreViewModels
         public string DefaultCurrency { get; set; }
 
         [Display(Name = "Minimum acceptable expiration time for BOLT11 for refunds")]
-        [Range(1, 365 * 10)]
+        [Range(0, 365 * 10)]
         public long BOLT11Expiration { get; set; }
     }
 }

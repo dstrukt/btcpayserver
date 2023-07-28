@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,12 +9,12 @@ using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.LndHub;
 using BTCPayServer.Logging;
 using BTCPayServer.Models;
 using BTCPayServer.Models.InvoicingModels;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
-using BTCPayServer.Services.Rates;
 using Microsoft.Extensions.Options;
 using NBitcoin;
 
@@ -23,26 +22,26 @@ namespace BTCPayServer.Payments.Lightning
 {
     public class LightningLikePaymentHandler : PaymentMethodHandlerBase<LightningSupportedPaymentMethod, BTCPayNetwork>
     {
-        public static int LIGHTNING_TIMEOUT = 5000;
+        public static readonly int LightningTimeout = 5000;
         readonly NBXplorerDashboard _Dashboard;
         private readonly LightningClientFactoryService _lightningClientFactory;
         private readonly BTCPayNetworkProvider _networkProvider;
         private readonly SocketFactory _socketFactory;
-        private readonly CurrencyNameTable _currencyNameTable;
+        private readonly DisplayFormatter _displayFormatter;
 
         public LightningLikePaymentHandler(
             NBXplorerDashboard dashboard,
             LightningClientFactoryService lightningClientFactory,
             BTCPayNetworkProvider networkProvider,
             SocketFactory socketFactory,
-            CurrencyNameTable currencyNameTable,
+            DisplayFormatter displayFormatter,
             IOptions<LightningNetworkOptions> options)
         {
             _Dashboard = dashboard;
             _lightningClientFactory = lightningClientFactory;
             _networkProvider = networkProvider;
             _socketFactory = socketFactory;
-            _currencyNameTable = currencyNameTable;
+            _displayFormatter = displayFormatter;
             Options = options;
         }
 
@@ -55,10 +54,6 @@ namespace BTCPayServer.Payments.Lightning
             LightningSupportedPaymentMethod supportedPaymentMethod, PaymentMethod paymentMethod, Data.StoreData store,
             BTCPayNetwork network, object preparePaymentObject, IEnumerable<PaymentMethodId> invoicePaymentMethods)
         {
-            if (supportedPaymentMethod.DisableBOLT11PaymentOption)
-            {
-                throw new PaymentMethodUnavailableException("BOLT11 payment method is disabled");
-            }
             if (paymentMethod.ParentEntity.Type == InvoiceType.TopUp)
             {
                 throw new PaymentMethodUnavailableException("Lightning Network payment method is not available for top-up invoices");
@@ -78,7 +73,7 @@ namespace BTCPayServer.Payments.Lightning
             decimal due = Extensions.RoundUp(invoice.Price / paymentMethod.Rate, network.Divisibility);
             try
             {
-                due = paymentMethod.Calculate().Due.ToDecimal(MoneyUnit.BTC);
+                due = paymentMethod.Calculate().Due;
             }
             catch (Exception)
             {
@@ -89,13 +84,13 @@ namespace BTCPayServer.Payments.Lightning
             if (expiry < TimeSpan.Zero)
                 expiry = TimeSpan.FromSeconds(1);
 
-            LightningInvoice? lightningInvoice = null;
+            LightningInvoice? lightningInvoice;
 
             string description = storeBlob.LightningDescriptionTemplate;
             description = description.Replace("{StoreName}", store.StoreName ?? "", StringComparison.OrdinalIgnoreCase)
                                      .Replace("{ItemDescription}", invoice.Metadata.ItemDesc ?? "", StringComparison.OrdinalIgnoreCase)
                                      .Replace("{OrderId}", invoice.Metadata.OrderId ?? "", StringComparison.OrdinalIgnoreCase);
-            using (var cts = new CancellationTokenSource(LIGHTNING_TIMEOUT))
+            using (var cts = new CancellationTokenSource(LightningTimeout))
             {
                 try
                 {
@@ -118,6 +113,7 @@ namespace BTCPayServer.Payments.Lightning
                 Activated = true,
                 BOLT11 = lightningInvoice.BOLT11,
                 PaymentHash = BOLT11PaymentRequest.Parse(lightningInvoice.BOLT11, network.NBitcoinNetwork).PaymentHash,
+                Preimage = string.IsNullOrEmpty(lightningInvoice.Preimage) ? null : uint256.Parse(lightningInvoice.Preimage),
                 InvoiceId = lightningInvoice.Id,
                 NodeInfo = (await nodeInfo).FirstOrDefault()?.ToString()
             };
@@ -127,11 +123,16 @@ namespace BTCPayServer.Payments.Lightning
         {
             if (!_Dashboard.IsFullySynched(network.CryptoCode, out var summary))
                 throw new PaymentMethodUnavailableException("Full node not available");
-
+            
             try
             {
-                using var cts = new CancellationTokenSource(LIGHTNING_TIMEOUT);
+                using var cts = new CancellationTokenSource(LightningTimeout);
                 var client = CreateLightningClient(supportedPaymentMethod, network);
+
+                // LNDhub-compatible implementations might not offer all of GetInfo data.
+                // Skip checks in those cases, see https://github.com/lnbits/lnbits/issues/1182
+                var isLndHub = client is LndHubLightningClient;
+                
                 LightningNodeInformation info;
                 try
                 {
@@ -140,6 +141,10 @@ namespace BTCPayServer.Payments.Lightning
                 catch (OperationCanceledException) when (cts.IsCancellationRequested)
                 {
                     throw new PaymentMethodUnavailableException("The lightning node did not reply in a timely manner");
+                }
+                catch (NotSupportedException) when (isLndHub)
+                {
+                    return new NodeInfo[] {};
                 }
                 catch (Exception ex)
                 {
@@ -151,9 +156,9 @@ namespace BTCPayServer.Payments.Lightning
                 var nodeInfo = preferOnion != null && info.NodeInfoList.Any(i => i.IsTor == preferOnion)
                     ? info.NodeInfoList.Where(i => i.IsTor == preferOnion.Value).ToArray()
                     : info.NodeInfoList.Select(i => i).ToArray();
-
+                
                 var blocksGap = summary.Status.ChainHeight - info.BlockHeight;
-                if (blocksGap > 10)
+                if (blocksGap > 10 && !(isLndHub && info.BlockHeight == 0))
                 {
                     throw new PaymentMethodUnavailableException($"The lightning node is not synched ({blocksGap} blocks left)");
                 }
@@ -211,24 +216,17 @@ namespace BTCPayServer.Payments.Lightning
             StoreBlob storeBlob, IPaymentMethod paymentMethod)
         {
             var paymentMethodId = paymentMethod.GetId();
-
             var cryptoInfo = invoiceResponse.CryptoInfo.First(o => o.GetpaymentMethodId() == paymentMethodId);
             var network = _networkProvider.GetNetwork<BTCPayNetwork>(model.CryptoCode);
+
             model.PaymentMethodName = GetPaymentMethodName(network);
             model.InvoiceBitcoinUrl = cryptoInfo.PaymentUrls?.BOLT11;
             model.InvoiceBitcoinUrlQR = $"lightning:{cryptoInfo.PaymentUrls?.BOLT11?.ToUpperInvariant()?.Substring("LIGHTNING:".Length)}";
-
             model.PeerInfo = ((LightningLikePaymentMethodDetails)paymentMethod.GetPaymentMethodDetails()).NodeInfo;
+
             if (storeBlob.LightningAmountInSatoshi && model.CryptoCode == "BTC")
             {
-                var satoshiCulture = new CultureInfo(CultureInfo.InvariantCulture.Name);
-                satoshiCulture.NumberFormat.NumberGroupSeparator = " ";
-                model.CryptoCode = "Sats";
-                model.BtcDue = Money.Parse(model.BtcDue).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
-                model.BtcPaid = Money.Parse(model.BtcPaid).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
-                model.OrderAmount = Money.Parse(model.OrderAmount).ToUnit(MoneyUnit.Satoshi).ToString("N0", satoshiCulture);
-                model.NetworkFee = new Money(model.NetworkFee, MoneyUnit.BTC).ToUnit(MoneyUnit.Satoshi);
-                model.Rate = _currencyNameTable.DisplayFormatCurrency(paymentMethod.Rate / 100_000_000, model.InvoiceCurrency);
+                base.PreparePaymentModelForAmountInSats(model, paymentMethod, _displayFormatter);
             }
         }
         public override string GetCryptoImage(PaymentMethodId paymentMethodId)
