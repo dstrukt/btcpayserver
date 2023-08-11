@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.11.2
+
+## Bug fixes
+
+* Language Select box cut off on checkout (#5210) @evanc-ole
+* POS: Multiple fixes (#5228 #5241 #5252) @dennisreimann
+* Greenfield: Fix invoice lookup by capitalized status (#5245) @dennisreimann
+* Fix temporary file downloads for local storage option @Kukks
+
+### Improvements
+
+* POS: Handle flexible price items in cart view (#5238) @dennisreimann
+* POS: Combine search term and category selector (#5241) @dennisreimann
+* Email Rules: Improve validation (#5234) @dennisreimann
+* Receipt improvements (#5239) @dennisreimann
+* Improve invoices status filter (#5248 #5251) @dennisreimann
+
+## 1.11.1
+
+## Bug fixes
+
+* Language Select box cut off on checkout (#5210) @dstrukt
+* POS Cart view malformed when special characters are in items (#5203 #5211) @Kukks
+* Errors creating invoice from public form were not shown in the UI (#5208 #5211) @Kukks
+* Cart view doesn't show item when the amount field is custom (#5204 #5211) @Kukks
+* Can't save the item when adding a new category in POS (#5205 #5211) @Kukks
+
 ## 1.11.0
 
 ### New Features
@@ -124,9 +151,9 @@ This data, generally used for debugging integrations, will be regularly purged. 
 * Crowdfund: Fix redirect URL fallback (#4943) @dennisreimann
 * Greenfield: Apply store default payment method on invoice creation (#4947) @dennisreimann
 * POS: Fix Firefox issues (#4950) @r0ckstardev
-* Fix viewing arrays in the invoice details when set in metadata (#4954) @Kukks 
+* Fix viewing arrays in the invoice details when set in metadata (#4954) @Kukks
 * Do not crash checkout when attempting LNURL checkout through non-secure page (#4964) @Kukks
-* NFC: Handle HTTP-related exceptions (#4965) @dennisreimann 
+* NFC: Handle HTTP-related exceptions (#4965) @dennisreimann
 
 ### Improvements
 
