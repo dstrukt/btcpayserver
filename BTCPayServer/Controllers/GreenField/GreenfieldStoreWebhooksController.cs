@@ -10,6 +10,7 @@ using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
+using BTCPayServer.HostedServices.Webhooks;
 using BTCPayServer.Security;
 using BTCPayServer.Services.Stores;
 using Google.Apis.Auth.OAuth2;
@@ -77,7 +78,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
         private void ValidateWebhookRequest(StoreWebhookBaseData create)
         {
-            if (!Uri.TryCreate(create?.Url, UriKind.Absolute, out var uri))
+            if (!Uri.TryCreate(create?.Url, UriKind.Absolute, out _))
                 ModelState.AddModelError(nameof(Url), "Invalid Url");
         }
 

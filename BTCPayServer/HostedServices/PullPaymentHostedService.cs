@@ -157,6 +157,8 @@ namespace BTCPayServer.HostedServices
             public bool IncludeArchived { get; set; }
             public bool IncludeStoreData { get; set; }
             public bool IncludePullPaymentData { get; set; }
+            public DateTimeOffset? From { get; set; }
+            public DateTimeOffset? To { get; set; }
         }
 
         public async Task<List<PayoutData>> GetPayouts(PayoutQuery payoutQuery)
@@ -171,7 +173,15 @@ namespace BTCPayServer.HostedServices
             var query = ctx.Payouts.AsQueryable();
             if (payoutQuery.States is not null)
             {
-                query = query.Where(data => payoutQuery.States.Contains(data.State));
+                if (payoutQuery.States.Length == 1)
+                {
+                    var state = payoutQuery.States[0];
+                    query = query.Where(data => data.State == state);
+                }
+                else
+                {
+                    query = query.Where(data => payoutQuery.States.Contains(data.State));
+                }
             }
 
             if (payoutQuery.PullPayments is not null)
@@ -194,12 +204,28 @@ namespace BTCPayServer.HostedServices
 
             if (payoutQuery.PaymentMethods is not null)
             {
-                query = query.Where(data => payoutQuery.PaymentMethods.Contains(data.PaymentMethodId));
+                if (payoutQuery.PaymentMethods.Length == 1)
+                {
+                    var pm = payoutQuery.PaymentMethods[0];
+                    query = query.Where(data => pm == data.PaymentMethodId);
+                }
+                else
+                {
+                    query = query.Where(data => payoutQuery.PaymentMethods.Contains(data.PaymentMethodId));
+                }
             }
 
             if (payoutQuery.Stores is not null)
             {
-                query = query.Where(data => payoutQuery.Stores.Contains(data.StoreDataId));
+                if (payoutQuery.Stores.Length == 1)
+                {
+                    var store = payoutQuery.Stores[0];
+                    query = query.Where(data => store == data.StoreDataId);
+                }
+                else
+                {
+                    query = query.Where(data => payoutQuery.Stores.Contains(data.StoreDataId));
+                }
             }
             if (payoutQuery.IncludeStoreData)
             {
@@ -217,6 +243,14 @@ namespace BTCPayServer.HostedServices
                     data.PullPaymentData == null || !data.PullPaymentData.Archived);
             }
 
+            if (payoutQuery.From is not null)
+            {
+                query = query.Where(data => data.Date >= payoutQuery.From);
+            }
+            if (payoutQuery.To is not null)
+            {
+                query = query.Where(data => data.Date <= payoutQuery.To);
+            }
             return await query.ToListAsync(cancellationToken);
         }
 
@@ -483,6 +517,7 @@ namespace BTCPayServer.HostedServices
                 }
                 payout.State = req.Request.State;
                 await ctx.SaveChangesAsync();
+                _eventAggregator.Publish(new PayoutEvent(PayoutEvent.PayoutEventType.Updated, payout));
                 req.Completion.SetResult(MarkPayoutRequest.PayoutPaidResult.Ok);
             }
             catch (Exception ex)
@@ -701,6 +736,11 @@ namespace BTCPayServer.HostedServices
                 }
 
                 await ctx.SaveChangesAsync();
+                foreach (var keyValuePair in result.Where(pair => pair.Value == MarkPayoutRequest.PayoutPaidResult.Ok))
+                {
+                    var payout = payouts.First(p => p.Id == keyValuePair.Key);
+                    _eventAggregator.Publish(new PayoutEvent(PayoutEvent.PayoutEventType.Updated, payout));
+                }
                 cancel.Completion.TrySetResult(result);
             }
             catch (Exception ex)
@@ -919,13 +959,13 @@ namespace BTCPayServer.HostedServices
         public JObject Metadata { get; set; }
     }
 
-    public record PayoutEvent(PayoutEvent.PayoutEventType Type,PayoutData Payout)
+    public record PayoutEvent(PayoutEvent.PayoutEventType Type, PayoutData Payout)
     {
         public enum PayoutEventType
         {
             Created,
-            Approved
+            Approved,
+            Updated
         }
-
     }
 }

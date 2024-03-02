@@ -50,6 +50,7 @@ namespace BTCPayServer.Data
 
         public static StoreBlob GetStoreBlob(this StoreData storeData)
         {
+            ArgumentNullException.ThrowIfNull(storeData);
             var result = storeData.StoreBlob == null ? new StoreBlob() : new Serializer(null).ToObject<StoreBlob>(storeData.StoreBlob);
             if (result.PreferredExchange == null)
                 result.PreferredExchange = result.GetRecommendedExchange();
@@ -57,6 +58,14 @@ namespace BTCPayServer.Data
                 result.PaymentMethodCriteria = new List<PaymentMethodCriteria>();
             result.PaymentMethodCriteria.RemoveAll(criteria => criteria?.PaymentMethod is null);
             return result;
+        }
+
+        public static bool AnyPaymentMethodAvailable(this StoreData storeData, BTCPayNetworkProvider networkProvider)
+        {
+            var storeBlob = GetStoreBlob(storeData);
+            var excludeFilter = storeBlob.GetExcludedPaymentMethods();
+
+            return GetSupportedPaymentMethods(storeData, networkProvider).Where(s => !excludeFilter.Match(s.PaymentId)).Any();
         }
 
         public static bool SetStoreBlob(this StoreData storeData, StoreBlob storeBlob)

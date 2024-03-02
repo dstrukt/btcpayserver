@@ -44,7 +44,6 @@
     <h3 class="mb-0">@ViewData["Title"]</h3>
     <a asp-action="CreateOrEditRole" asp-route-storeId="@storeId" class="btn btn-primary" role="button" id="CreateRole" asp-route-role="create"
        asp-controller="@controller">
-        <span class="fa fa-plus"></span>
         Add Role
     </a>
 </div>
@@ -97,7 +96,10 @@
                 <td>
                     @if (!role.Permissions.Any())
                     {
-                        <span class="text-warning">No policies</span>
+                        <span class="info-note text-warning">
+                            <vc:icon symbol="warning"/>
+                            No policies
+                        </span>
                     }
                     else
                     {

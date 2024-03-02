@@ -41,6 +41,7 @@ namespace BTCPayServer.Controllers.Greenfield
         private readonly RateFetcher _rateProvider;
         private readonly InvoiceActivator _invoiceActivator;
         private readonly ApplicationDbContextFactory _dbContextFactory;
+        private readonly IAuthorizationService _authorizationService;
 
         public LanguageService LanguageService { get; }
 
@@ -48,7 +49,9 @@ namespace BTCPayServer.Controllers.Greenfield
             LinkGenerator linkGenerator, LanguageService languageService, BTCPayNetworkProvider btcPayNetworkProvider,
             CurrencyNameTable currencyNameTable, RateFetcher rateProvider,
             InvoiceActivator invoiceActivator,
-            PullPaymentHostedService pullPaymentService, ApplicationDbContextFactory dbContextFactory)
+            PullPaymentHostedService pullPaymentService, 
+            ApplicationDbContextFactory dbContextFactory, 
+            IAuthorizationService authorizationService)
         {
             _invoiceController = invoiceController;
             _invoiceRepository = invoiceRepository;
@@ -59,6 +62,7 @@ namespace BTCPayServer.Controllers.Greenfield
             _invoiceActivator = invoiceActivator;
             _pullPaymentService = pullPaymentService;
             _dbContextFactory = dbContextFactory;
+            _authorizationService = authorizationService;
             LanguageService = languageService;
         }
 
@@ -350,7 +354,7 @@ namespace BTCPayServer.Controllers.Greenfield
             return this.CreateValidationError(ModelState);
         }
 
-        [Authorize(Policy = Policies.CanModifyStoreSettings,
+        [Authorize(Policy = Policies.CanCreateNonApprovedPullPayments,
             AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
         [HttpPost("~/api/v1/stores/{storeId}/invoices/{invoiceId}/refund")]
         public async Task<IActionResult> RefundInvoice(
@@ -512,10 +516,11 @@ namespace BTCPayServer.Controllers.Greenfield
                 createPullPayment.Amount = Math.Round(createPullPayment.Amount - reduceByAmount, appliedDivisibility);
             }
 
+            createPullPayment.AutoApproveClaims = createPullPayment.AutoApproveClaims && (await _authorizationService.AuthorizeAsync(User, createPullPayment.StoreId ,Policies.CanCreatePullPayments)).Succeeded;
             var ppId = await _pullPaymentService.CreatePullPayment(createPullPayment);
 
             await using var ctx = _dbContextFactory.CreateContext();
-            (await ctx.Invoices.FindAsync(new[] { invoice.Id }, cancellationToken))!.CurrentRefundId = ppId;
+
             ctx.Refunds.Add(new RefundData
             {
                 InvoiceDataId = invoice.Id,
@@ -524,7 +529,6 @@ namespace BTCPayServer.Controllers.Greenfield
             await ctx.SaveChangesAsync(cancellationToken);
 
             var pp = await _pullPaymentService.GetPullPayment(ppId, false);
-
             return this.Ok(CreatePullPaymentData(pp));
         }
 

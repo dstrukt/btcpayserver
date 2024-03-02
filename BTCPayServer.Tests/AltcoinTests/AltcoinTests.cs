@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
+using BTCPayServer.Events;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Hosting;
 using BTCPayServer.Lightning;
@@ -23,6 +24,7 @@ using Newtonsoft.Json.Linq;
 using OpenQA.Selenium;
 using Xunit;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 using WalletSettingsViewModel = BTCPayServer.Models.StoreViewModels.WalletSettingsViewModel;
 
 namespace BTCPayServer.Tests
@@ -174,7 +176,7 @@ namespace BTCPayServer.Tests
 #pragma warning disable CS0618 // Type or member is obsolete
                     .OfType<DerivationSchemeSettings>().First(o => o.PaymentId.IsBTCOnChain);
 #pragma warning restore CS0618 // Type or member is obsolete
-                DerivationSchemeSettings.TryParseFromWalletFile(content, onchainBTC.Network, out var expected, out var error);
+                FastTests.GetParsers().TryParseWalletFile(content, onchainBTC.Network, out var expected, out var error);
                 Assert.Equal(expected.ToJson(), onchainBTC.ToJson());
                 Assert.Null(error);
 
@@ -756,24 +758,26 @@ noninventoryitem:
                 vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
 
-                //inventoryitem has 1 item available
-                await tester.WaitForEvent<AppInventoryUpdaterHostedService.UpdateAppInventory>(() =>
+                async Task AssertCanBuy(string choiceKey, bool expected)
                 {
-                    Assert.IsType<RedirectToActionResult>(publicApps
-                        .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "inventoryitem").Result);
-                    return Task.CompletedTask;
-                });
+                    var redirect = Assert.IsType<RedirectToActionResult>(await publicApps
+                        .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: choiceKey));
+                    if (expected)
+                        Assert.Equal("UIInvoice", redirect.ControllerName);
+                    else
+                        Assert.NotEqual("UIInvoice", redirect.ControllerName);
+                }
+
+                //inventoryitem has 1 item available
+                await AssertCanBuy("inventoryitem", true);
 
                 //we already bought all available stock so this should fail
                 await Task.Delay(100);
-                Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "inventoryitem").Result);
+                await AssertCanBuy("inventoryitem", false);
 
                 //inventoryitem has unlimited items available
-                Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "noninventoryitem").Result);
-                Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "noninventoryitem").Result);
+                await AssertCanBuy("noninventoryitem", true);
+                await AssertCanBuy("noninventoryitem", true);
 
                 //verify invoices where created
                 invoices = user.BitPay.GetInvoices();
@@ -805,7 +809,6 @@ btconly:
     - BTC
 normal:
   price: 1.0";
-
                 vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
                 Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
                 Assert.IsType<RedirectToActionResult>(publicApps

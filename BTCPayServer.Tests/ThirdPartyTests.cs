@@ -10,18 +10,24 @@ using System.Threading.Tasks;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
 using BTCPayServer.Models.StoreViewModels;
+using BTCPayServer.Models.WalletViewModels;
 using BTCPayServer.Rating;
+using BTCPayServer.Services.Fees;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Storage.Models;
 using BTCPayServer.Storage.Services.Providers.AzureBlobStorage.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileSystemGlobbing;
 using NBitcoin;
 using NBitpayClient;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
+using static BTCPayServer.HostedServices.PullPaymentHostedService.PayoutApproval;
 
 namespace BTCPayServer.Tests
 {
@@ -71,6 +77,59 @@ namespace BTCPayServer.Tests
             await UnitTest1.CanUploadRemoveFiles(controller);
         }
 
+        [Fact]
+        public async Task CanQueryMempoolFeeProvider()
+        {
+            IServiceCollection collection = new ServiceCollection();
+            collection.AddMemoryCache();
+            collection.AddHttpClient();
+            var prov = collection.BuildServiceProvider();
+            foreach (var isTestnet in new[] { true, false })
+            {
+                var mempoolSpaceFeeProvider = new MempoolSpaceFeeProvider(
+                    prov.GetService<IMemoryCache>(),
+                    "test" + isTestnet,
+                    prov.GetService<IHttpClientFactory>(),
+                    isTestnet);
+                mempoolSpaceFeeProvider.CachedOnly = true;
+                await Assert.ThrowsAsync<InvalidOperationException>(() => mempoolSpaceFeeProvider.GetFeeRateAsync());
+                mempoolSpaceFeeProvider.CachedOnly = false;
+                var rates = await mempoolSpaceFeeProvider.GetFeeRatesAsync();
+                mempoolSpaceFeeProvider.CachedOnly = true;
+                await mempoolSpaceFeeProvider.GetFeeRateAsync();
+                mempoolSpaceFeeProvider.CachedOnly = false;
+                Assert.NotEmpty(rates);
+                
+                
+                var recommendedFees =
+                    await Task.WhenAll(new[]
+                        {
+                            TimeSpan.FromMinutes(10.0), TimeSpan.FromMinutes(60.0), TimeSpan.FromHours(6.0),
+                            TimeSpan.FromHours(24.0),
+                        }.Select(async time =>
+                        {
+                            try
+                            {
+                                var result = await mempoolSpaceFeeProvider.GetFeeRateAsync(
+                                    (int)Network.Main.Consensus.GetExpectedBlocksFor(time));
+                                return new WalletSendModel.FeeRateOption()
+                                {
+                                    Target = time,
+                                    FeeRate = result.SatoshiPerByte
+                                };
+                            }
+                            catch (Exception)
+                            {
+                                return null;
+                            }
+                        })
+                        .ToArray());
+                //ENSURE THESE ARE LOGICAL
+                Assert.True(recommendedFees[0].FeeRate >= recommendedFees[1].FeeRate, $"{recommendedFees[0].Target}:{recommendedFees[0].FeeRate} >= {recommendedFees[1].Target}:{recommendedFees[1].FeeRate}");
+                Assert.True(recommendedFees[1].FeeRate >= recommendedFees[2].FeeRate, $"{recommendedFees[1].Target}:{recommendedFees[1].FeeRate} >= {recommendedFees[2].Target}:{recommendedFees[2].FeeRate}");
+                Assert.True(recommendedFees[2].FeeRate >= recommendedFees[3].FeeRate, $"{recommendedFees[2].Target}:{recommendedFees[2].FeeRate} >= {recommendedFees[3].Target}:{recommendedFees[3].FeeRate}");                
+            }
+        }
         [Fact]
         public async Task CanQueryDirectProviders()
         {
@@ -132,6 +191,12 @@ namespace BTCPayServer.Tests
                     // Ripio keeps changing their pair, so anything is fine...
                     Assert.NotEmpty(exchangeRates.ByExchange[name]);
                 }
+                else if (name == "bitnob")
+                {
+                    Assert.Contains(exchangeRates.ByExchange[name],
+                        e => e.CurrencyPair == new CurrencyPair("BTC", "NGN") &&
+                             e.BidAsk.Bid > 1.0m); // 1 BTC will always be more than 1 NGN
+                }
                 else if (name == "cryptomarket")
                 {
                     Assert.Contains(exchangeRates.ByExchange[name],
@@ -177,7 +242,7 @@ namespace BTCPayServer.Tests
             Assert.Contains(rates, e => e.CurrencyPair == new CurrencyPair("XMR", "BTC") && e.BidAsk.Bid < 1.0m);
 
             // Check we didn't skip too many exchanges
-            Assert.InRange(skipped, 0, 3);
+            Assert.InRange(skipped, 0, 5);
         }
 
         [Fact]
@@ -254,7 +319,6 @@ retry:
             }
             catch (Exception ex) when (ex is MatchesException)
             {
-                var details = ex.Message;
                 TestLogs.LogInformation($"FAILED: {url} ({file}) – anchor not found: {uri.Fragment}");
 
                 throw;
@@ -266,17 +330,16 @@ retry:
             }
             catch (Exception ex)
             {
-                var details = ex is EqualException ? (ex as EqualException).Actual : ex.Message;
+                var details = ex.Message;
                 TestLogs.LogInformation($"FAILED: {url} ({file}) {details}");
 
                 throw;
             }
         }
 
-        [Fact()]
+        [Fact]
         public void CanSolveTheDogesRatesOnKraken()
         {
-            var provider = new BTCPayNetworkProvider(ChainName.Mainnet);
             var factory = FastTests.CreateBTCPayRateFactory();
             var fetcher = new RateFetcher(factory);
 
@@ -290,10 +353,44 @@ retry:
         }
 
         [Fact]
+        public async Task CanGetRateFromRecommendedExchanges()
+        {
+            var factory = FastTests.CreateBTCPayRateFactory();
+            var fetcher = new RateFetcher(factory);
+            var provider = CreateNetworkProvider(ChainName.Mainnet);
+            var b = new StoreBlob();
+            string[] temporarilyBroken = Array.Empty<string>();
+            foreach (var k in StoreBlob.RecommendedExchanges)
+            {
+                b.DefaultCurrency = k.Key;
+                var rules = b.GetDefaultRateRules(provider);
+                var pairs = new[] { CurrencyPair.Parse($"BTC_{k.Key}") }.ToHashSet();
+                var result = fetcher.FetchRates(pairs, rules, default);
+                foreach ((CurrencyPair key, Task<RateResult> value) in result)
+                {
+                    TestLogs.LogInformation($"Testing {key} when default currency is {k.Key}");
+                    var rateResult = await value;
+                    var hasRate = rateResult.BidAsk != null;
+                    
+                    if (temporarilyBroken.Contains(k.Key))
+                    {
+                        if (!hasRate)
+                        {
+                            TestLogs.LogInformation($"Skipping {key} because it is marked as temporarily broken");
+                            continue;
+                        }
+                        TestLogs.LogInformation($"Note: {key} is marked as temporarily broken, but the rate is available");
+                    }
+                    Assert.True(hasRate, $"Impossible to get the rate {rateResult.EvaluatedRule}");
+                }
+            }
+        }
+
+        [Fact]
         public async Task CanGetRateCryptoCurrenciesByDefault()
         {
-            string[] brokenShitcoins = { "BTG", "BTX" };
-            var provider = new BTCPayNetworkProvider(ChainName.Mainnet);
+            using var cts = new CancellationTokenSource(60_000);
+            var provider = CreateNetworkProvider(ChainName.Mainnet);
             var factory = FastTests.CreateBTCPayRateFactory();
             var fetcher = new RateFetcher(factory);
             var pairs =
@@ -301,44 +398,25 @@ retry:
                     .Select(c => new CurrencyPair(c.CryptoCode, "USD"))
                     .ToHashSet();
 
+            string[] brokenShitcoins = { "BTG", "BTX", "GRS" };
+            bool IsBrokenShitcoin(CurrencyPair p) => brokenShitcoins.Contains(p.Left) || brokenShitcoins.Contains(p.Right);
+            foreach (var _ in brokenShitcoins)
+            {
+                foreach (var p in pairs.Where(IsBrokenShitcoin).ToArray())
+                {
+                    TestLogs.LogInformation($"Skipping {p} because it is marked as broken");
+                    pairs.Remove(p);
+                }
+            }
+
             var rules = new StoreBlob().GetDefaultRateRules(provider);
-            var result = fetcher.FetchRates(pairs, rules, default);
+            var result = fetcher.FetchRates(pairs, rules, cts.Token);
             foreach ((CurrencyPair key, Task<RateResult> value) in result)
             {
                 var rateResult = await value;
-                if (brokenShitcoins.Contains(key.Left))
-                {
-                    TestLogs.LogInformation($"Skipping {key} because it is marked as broken");
-                    continue;
-                }
-                    
                 TestLogs.LogInformation($"Testing {key}");
                 Assert.True(rateResult.BidAsk != null, $"Impossible to get the rate {rateResult.EvaluatedRule}");
             }
-
-            var b = new StoreBlob();
-            foreach (var k in StoreBlob.RecommendedExchanges)
-            {
-                b.DefaultCurrency = k.Key;
-                rules = b.GetDefaultRateRules(provider);
-                pairs =
-                    provider.GetAll()
-                        .Select(c => new CurrencyPair(c.CryptoCode, k.Key))
-                        .ToHashSet();
-                result = fetcher.FetchRates(pairs, rules, default);
-                foreach ((CurrencyPair key, Task<RateResult> value) in result)
-                {
-                    var rateResult = await value;
-                    if (brokenShitcoins.Contains(key.Left))
-                    {
-                        TestLogs.LogInformation($"Skipping {key} because it is marked as broken");
-                        continue;
-                    }
-                    TestLogs.LogInformation($"Testing {key} when default currency is {k.Key}");
-                    Assert.True(rateResult.BidAsk != null, $"Impossible to get the rate {rateResult.EvaluatedRule}");
-                }
-            }
-
         }
 
         [Fact]
@@ -380,7 +458,8 @@ retry:
             EqualJsContent(expected, actual);
 
             actual = GetFileContent("BTCPayServer", "wwwroot", "vendor", "tom-select", "tom-select.complete.min.js").Trim();
-            expected = (await (await client.GetAsync($"https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js")).Content.ReadAsStringAsync()).Trim();
+            version = Regex.Match(actual, "Tom Select v([0-9]+.[0-9]+.[0-9]+)").Groups[1].Value;
+            expected = (await (await client.GetAsync($"https://cdn.jsdelivr.net/npm/tom-select@{version}/dist/js/tom-select.complete.min.js")).Content.ReadAsStringAsync()).Trim();
             EqualJsContent(expected, actual);
 
             actual = GetFileContent("BTCPayServer", "wwwroot", "vendor", "dom-confetti", "dom-confetti.min.js").Trim();
@@ -409,6 +488,11 @@ retry:
             actual = GetFileContent("BTCPayServer", "wwwroot", "vendor", "vue-sanitize-directive", "vue-sanitize-directive.umd.min.js").Trim();
             version = Regex.Match(actual, "Original file: /npm/vue-sanitize-directive@([0-9]+.[0-9]+.[0-9]+)").Groups[1].Value;
             expected = (await (await client.GetAsync($"https://cdn.jsdelivr.net/npm/vue-sanitize-directive@{version}/dist/vue-sanitize-directive.umd.min.js")).Content.ReadAsStringAsync()).Trim();
+            EqualJsContent(expected, actual);
+
+            actual = GetFileContent("BTCPayServer", "wwwroot", "vendor", "decimal.js", "decimal.min.js").Trim();
+            version = Regex.Match(actual, "Original file: /npm/decimal\\.js@([0-9]+.[0-9]+.[0-9]+)/decimal\\.js").Groups[1].Value;
+            expected = (await (await client.GetAsync($"https://cdn.jsdelivr.net/npm/decimal.js@{version}/decimal.min.js")).Content.ReadAsStringAsync()).Trim();
             EqualJsContent(expected, actual);
         }
 

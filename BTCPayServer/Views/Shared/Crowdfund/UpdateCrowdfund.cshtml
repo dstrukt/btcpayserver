@@ -4,36 +4,39 @@
 @using BTCPayServer.TagHelpers
 @using BTCPayServer.Views.Apps
 @using Microsoft.AspNetCore.Mvc.TagHelpers
+@using BTCPayServer.Forms
+@inject FormDataService FormDataService
 @inject BTCPayServer.Security.ContentSecurityPolicies Csp
 @model BTCPayServer.Plugins.Crowdfund.Models.UpdateCrowdfundViewModel
 @{
     ViewData.SetActivePage(AppsNavPages.Update, "Update Crowdfund", Model.AppId);
 	Csp.UnsafeEval();
+    var checkoutFormOptions = await FormDataService.GetSelect(Model.StoreId, Model.FormId);
 }
 
 @section PageHeadContent {
     <link href="~/vendor/summernote/summernote-bs5.css" rel="stylesheet" asp-append-version="true" />
-    <link href="~/main/template-editor.css" rel="stylesheet" asp-append-version="true" />
-    <style>
-        .flatpickr-wrapper { flex-grow: 1; }
-    </style>
+    <style>.flatpickr-wrapper { flex-grow: 1; }</style>
 }
 
 @section PageFootContent {
     <partial name="_ValidationScriptsPartial" />
-    <script src="~/vendor/vuejs/vue.min.js" asp-append-version="true"></script>
     <script src="~/vendor/summernote/summernote-bs5.js" asp-append-version="true"></script>
+    <script src="~/crowdfund/admin.js" asp-append-version="true"></script>
 }
 
 <form method="post">
-    <div class="sticky-header-setup"></div>
     <div class="sticky-header d-sm-flex align-items-center justify-content-between">
         <h2 class="mb-0">@ViewData["Title"]</h2>
         <div class="d-flex gap-3 mt-3 mt-sm-0">
             <button type="submit" class="btn btn-primary order-sm-1" id="SaveSettings">Save</button>   
-            @if (Model.ModelWithMinimumData)
+            @if (Model.Archived)
             {
-                <a class="btn btn-secondary" asp-action="ViewCrowdfund" asp-route-appId="@Model.AppId" id="ViewApp" target="_blank">View</a>
+                <button type="submit" class="btn btn-outline-secondary" name="Archived" value="False">Unarchive</button>
+            }
+            else if (Model.ModelWithMinimumData)
+            {
+                <a class="btn btn-secondary" asp-controller="UICrowdfund" asp-action="ViewCrowdfund" asp-route-appId="@Model.AppId" id="ViewApp" target="_blank">View</a>
             }
         </div>
     </div>
@@ -41,7 +44,8 @@
     <partial name="_StatusMessage" />
 
     <input type="hidden" asp-for="StoreId" />
-    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <input type="hidden" asp-for="Archived" />
+    <div asp-validation-summary="ModelOnly"></div>
 
     <div class="row">
         <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
@@ -165,8 +169,10 @@
             </div>
         </div>
     </div>
-    <div id="perks">
-        <partial name="TemplateEditor" model="@(nameof(Model.PerksTemplate), Model.PerksTemplate, "Perks", Model.TargetCurrency ?? Model.StoreDefaultCurrency)" />
+    <div id="perks" class="row">
+        <div class="col-xxl-constrain">
+            <partial name="TemplateEditor" model="@(nameof(Model.PerksTemplate), Model.PerksTemplate, "Perks", Model.TargetCurrency ?? Model.StoreDefaultCurrency)" />
+        </div>
     </div>
     <div class="row">
         <div class="col-xl-8 col-xxl-constrain">
@@ -197,6 +203,13 @@
                 <input asp-for="UseAllStoreInvoices" type="checkbox" class="form-check-input" />
                 <label asp-for="UseAllStoreInvoices" class="form-check-label"></label>
                 <span asp-validation-for="UseAllStoreInvoices" class="text-danger"></span>
+            </div>
+            
+            <h3 class="mt-5 mb-4">Checkout</h3>
+            <div class="form-group">
+                <label asp-for="FormId" class="form-label"></label>
+                <select asp-for="FormId" class="form-select w-auto" asp-items="@checkoutFormOptions"></select>
+                <span asp-validation-for="FormId" class="text-danger"></span>
             </div>
 
             <h3 class="mt-5 mb-2">Additional Options</h3>
@@ -281,31 +294,6 @@
                         </div>
                     </div>
                     <div class="accordion-item">
-                        <h2 class="accordion-header" id="additional-custom-css-header">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#additional-custom-css" aria-expanded="false" aria-controls="additional-custom-css">
-                                Custom CSS
-                                <vc:icon symbol="caret-down" />
-                            </button>
-                        </h2>
-                        <div id="additional-custom-css" class="accordion-collapse collapse" aria-labelledby="additional-custom-css-header">
-                            <div class="accordion-body">
-                                <div class="form-group">
-                                    <label asp-for="CustomCSSLink" class="form-label"></label>
-                                    <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener" title="More information...">
-                                        <vc:icon symbol="info" />
-                                    </a>
-                                    <input asp-for="CustomCSSLink" class="form-control" />
-                                    <span asp-validation-for="CustomCSSLink" class="text-danger"></span>
-                                </div>
-                                <div class="form-group mb-4">
-                                    <label asp-for="EmbeddedCSS" class="form-label"></label>
-                                    <textarea asp-for="EmbeddedCSS" rows="10" cols="40" class="form-control"></textarea>
-                                    <span asp-validation-for="EmbeddedCSS" class="text-danger"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="accordion-item">
                         <h2 class="accordion-header" id="additional-notification-header">
                             <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#additional-notification" aria-expanded="false" aria-controls="additional-notification">
                                 Notification URL Callbacks
@@ -322,44 +310,58 @@
                             </div>
                         </div>
                     </div>
+                    @* We are deprecating the custom CSS options in favor of the store branding approach.
+                       Display this section only if these values are set. *@
+                    @if (!string.IsNullOrWhiteSpace(Model.CustomCSSLink) || !string.IsNullOrWhiteSpace(Model.EmbeddedCSS))
+                    {
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="additional-custom-css-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#additional-custom-css" aria-expanded="false" aria-controls="additional-custom-css">
+                                    Custom CSS
+                                    <vc:icon symbol="caret-down" />
+                                </button>
+                            </h2>
+                            <div id="additional-custom-css" class="accordion-collapse collapse" aria-labelledby="additional-custom-css-header">
+                                <div class="accordion-body">
+                                    <div class="form-group">
+                                        <label asp-for="CustomCSSLink" class="form-label"></label>
+                                        <a href="https://docs.btcpayserver.org/Development/Theme/#2-bootstrap-themes" target="_blank" rel="noreferrer noopener" title="More information...">
+                                            <vc:icon symbol="info" />
+                                        </a>
+                                        <input asp-for="CustomCSSLink" class="form-control" />
+                                        <span asp-validation-for="CustomCSSLink" class="text-danger"></span>
+                                    </div>
+                                    <div class="form-group mb-4">
+                                        <label asp-for="EmbeddedCSS" class="form-label"></label>
+                                        <textarea asp-for="EmbeddedCSS" rows="10" cols="40" class="form-control"></textarea>
+                                        <span asp-validation-for="EmbeddedCSS" class="text-danger"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
     </div>
 </form>
 
-<div class="d-flex gap-3 mt-3">
+<div class="d-grid d-sm-flex flex-wrap gap-3 mt-3">
     <a class="btn btn-secondary" asp-action="ListInvoices" asp-controller="UIInvoice" asp-route-storeId="@Model.StoreId" asp-route-searchterm="@Model.SearchTerm">Invoices</a>
+    <form method="post" asp-controller="UIApps" asp-action="ToggleArchive" asp-route-appId="@Model.AppId">
+        <button type="submit" class="w-100 btn btn-outline-secondary" id="btn-archive-toggle">
+            @if (Model.Archived)
+            {
+                <span class="text-nowrap">Unarchive this app</span>
+            }
+            else
+            {
+                <span class="text-nowrap" data-bs-toggle="tooltip" title="Archive this app so that it does not appear in the apps list by default">Archive this app</span>
+            }
+        </button>
+    </form>
     <a id="DeleteApp" class="btn btn-outline-danger" asp-controller="UIApps" asp-action="DeleteApp" asp-route-appId="@Model.AppId" data-bs-toggle="modal" data-bs-target="#ConfirmModal" data-description="The app <strong>@Html.Encode(Model.AppName)</strong> and its settings will be permanently deleted." data-confirm-input="DELETE">Delete this app</a>
 </div>
 
 <partial name="_Confirm" model="@(new ConfirmModel("Delete app", "This app will be removed from this store.", "Delete"))" />
 
-<script>
-    const resetRow = document.getElementById('ResetRow');
-    const startDateInputId = "StartDate";
-
-    document.addEventListener("DOMContentLoaded", () => {
-        setTimeout(() => {
-            flatpickrInstances.forEach((instance) => {
-                if (instance.element.id === startDateInputId) {
-                    instance.config.onChange.push((selectedDates) => {
-                        if (selectedDates.length) {
-                            // Show the reset row if start date is selected.
-                            // Since start date must be selected in order for the reset options to be set
-                            // we don't need to show it by default and can show it only when start date is selected
-                                resetRow.removeAttribute('hidden');
-                        }
-                    });
-                }
-            });
-        }, 0);
-
-        document.addEventListener('input-group-clear-input-value-cleared', ({ detail }) => {
-            const input = detail[0];
-            if (input.id === startDateInputId) {
-                resetRow.setAttribute('hidden', 'hidden');
-            }
-        });
-    });
-</script>

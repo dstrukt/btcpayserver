@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -9,6 +8,7 @@ using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Lightning;
 using BTCPayServer.Lightning.CLightning;
+using BTCPayServer.Services;
 using BTCPayServer.Views.Manage;
 using BTCPayServer.Views.Server;
 using BTCPayServer.Views.Stores;
@@ -77,6 +77,7 @@ namespace BTCPayServer.Tests
                     // A bit less than test timeout
                     TimeSpan.FromSeconds(50));
             }
+
             ServerUri = Server.PayTester.ServerUri;
             Driver.Manage().Window.Maximize();
 
@@ -99,14 +100,25 @@ namespace BTCPayServer.Tests
             Driver.FindElement(By.Id("FakePayment")).Click();
             if (mine)
             {
+                TestUtils.Eventually(() =>
+                {
+                    Driver.WaitForElement(By.Id("CheatSuccessMessage"));
+                });
                 MineBlockOnInvoiceCheckout();
             }
         }
 
         public void MineBlockOnInvoiceCheckout()
         {
-            Driver.FindElement(By.CssSelector("#mine-block button")).Click();
-
+            retry:
+            try
+            {
+                Driver.FindElement(By.CssSelector("#mine-block button")).Click();
+            }
+            catch (StaleElementReferenceException)
+            {
+                goto retry;
+            }
         }
 
         /// <summary>
@@ -278,7 +290,7 @@ namespace BTCPayServer.Tests
         /// </summary>
         /// <param name="cryptoCode"></param>
         /// <param name="derivationScheme"></param>
-        public void AddDerivationScheme(string cryptoCode = "BTC", string derivationScheme = "xpub661MyMwAqRbcGABgHMUXDzPzH1tU7eZaAaJQXhDXsSxsqyQzQeU6kznNfSuAyqAK9UaWSaZaMFdNiY5BCF4zBPAzSnwfUAwUhwttuAKwfRX-[legacy]")
+        public void AddDerivationScheme(string cryptoCode = "BTC", string derivationScheme = "tpubD6NzVbkrYhZ4XxNXjYTcRujMc8z8734diCthtFGgDMimbG5hUsKBuSTCuUyxWL7YwP7R4A5StMTRQiZnb6vE4pdHWPgy9hbiHuVJfBMumUu-[legacy]")
         {
             if (!Driver.PageSource.Contains($"Setup {cryptoCode} Wallet"))
             {
@@ -295,17 +307,12 @@ namespace BTCPayServer.Tests
 
         public void AddLightningNode()
         {
-            AddLightningNode(null, null, true);
+            AddLightningNode(null, true);
         }
 
-        public void AddLightningNode(LightningConnectionType? connectionType = null, bool test = true)
+        public void AddLightningNode(string connectionType = null, bool test = true)
         {
-            AddLightningNode(null, connectionType, test);
-        }
-
-        public void AddLightningNode(string cryptoCode = null, LightningConnectionType? connectionType = null, bool test = true)
-        {
-            cryptoCode ??= "BTC";
+            var cryptoCode = "BTC";
             if (!Driver.PageSource.Contains("Connect to a Lightning node"))
             {
                 GoToLightningSettings();
@@ -565,7 +572,7 @@ namespace BTCPayServer.Tests
             walletId ??= WalletId;
             GoToWallet(walletId, WalletsNavPages.Receive);
             Driver.FindElement(By.Id("generateButton")).Click();
-            var addressStr = Driver.FindElement(By.Id("Address")).GetAttribute("value");
+            var addressStr = Driver.FindElement(By.Id("Address")).GetAttribute("data-text");
             var address = BitcoinAddress.Create(addressStr, ((BTCPayNetwork)Server.NetworkProvider.GetNetwork(walletId.CryptoCode)).NBitcoinNetwork);
             for (var i = 0; i < coins; i++)
             {

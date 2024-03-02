@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -14,7 +15,8 @@ using BTCPayServer.Plugins.PointOfSale.Models;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
-using Ganss.XSS;
+using Dapper;
+using Ganss.Xss;
 using Microsoft.EntityFrameworkCore;
 using NBitcoin;
 using NBitcoin.DataEncoders;
@@ -43,23 +45,21 @@ namespace BTCPayServer.Services.Apps
         readonly CurrencyNameTable _Currencies;
         private readonly DisplayFormatter _displayFormatter;
         private readonly StoreRepository _storeRepository;
-        private readonly HtmlSanitizer _HtmlSanitizer;
         public CurrencyNameTable Currencies => _Currencies;
+
         public AppService(
             IEnumerable<AppBaseType> apps,
             ApplicationDbContextFactory contextFactory,
             InvoiceRepository invoiceRepository,
             CurrencyNameTable currencies,
             DisplayFormatter displayFormatter,
-            StoreRepository storeRepository,
-            HtmlSanitizer htmlSanitizer)
+            StoreRepository storeRepository)
         {
             _appTypes = apps.ToDictionary(a => a.Type, a => a);
             _ContextFactory = contextFactory;
             _InvoiceRepository = invoiceRepository;
             _Currencies = currencies;
             _storeRepository = storeRepository;
-            _HtmlSanitizer = htmlSanitizer;
             _displayFormatter = displayFormatter;
         }
 #nullable enable
@@ -76,13 +76,13 @@ namespace BTCPayServer.Services.Apps
 
         public async Task<object?> GetInfo(string appId)
         {
-            var appData = await GetApp(appId, null);
+            var appData = await GetApp(appId, null, includeStore: true);
             if (appData is null)
                 return null;
             var appType = GetAppType(appData.AppType);
             if (appType is null)
                 return null;
-            return appType.GetInfo(appData);
+            return await appType.GetInfo(appData);
         }
 
         public async Task<IEnumerable<ItemStats>> GetItemStats(AppData appData)
@@ -159,12 +159,10 @@ namespace BTCPayServer.Services.Apps
         {
             return (res, e) =>
             {
-                if (e.Metadata.PosData != null)
+                // flatten single items from POS data
+                var data = e.Metadata.PosData?.ToObject<PosAppData>();
+                if (data is { Cart.Length: > 0 })
                 {
-                    // flatten single items from POS data
-                    var data = e.Metadata.PosData.ToObject<PosAppData>();
-                    if (data is not { Cart.Length: > 0 })
-                        return res;
                     foreach (var lineItem in data.Cart)
                     {
                         var item = items.FirstOrDefault(p => p.Id == lineItem.Id);
@@ -183,10 +181,10 @@ namespace BTCPayServer.Services.Apps
                     }
                 }
                 else
-                {;
+                {
                     res.Add(new InvoiceStatsItem
                     {
-                        ItemCode = e.Metadata.ItemCode,
+                        ItemCode = e.Metadata.ItemCode ?? typeof(PosViewType).DisplayName(PosViewType.Light.ToString()),
                         FiatPrice = e.PaidAmount.Net,
                         Date = e.InvoiceTime.Date
                     });
@@ -243,9 +241,18 @@ namespace BTCPayServer.Services.Apps
             return await ctx.SaveChangesAsync() == 1;
         }
 
-        public async Task<ListAppsViewModel.ListAppViewModel[]> GetAllApps(string? userId, bool allowNoUser = false, string? storeId = null)
+        public async Task<bool> SetArchived(AppData appData, bool archived)
         {
             await using var ctx = _ContextFactory.CreateContext();
+            appData.Archived = archived;
+            ctx.Entry(appData).State = EntityState.Modified;
+            return await ctx.SaveChangesAsync() == 1;
+        }
+
+        public async Task<ListAppsViewModel.ListAppViewModel[]> GetAllApps(string? userId, bool allowNoUser = false, string? storeId = null, bool includeArchived = false)
+        {
+            await using var ctx = _ContextFactory.CreateContext();
+            var types = GetAvailableAppTypes().Select(at => at.Key).ToHashSet();
             var listApps = (await ctx.UserStore
                 .Where(us =>
                     (allowNoUser && string.IsNullOrEmpty(userId) || us.ApplicationUserId == userId) &&
@@ -253,6 +260,7 @@ namespace BTCPayServer.Services.Apps
                 .Include(store => store.StoreRole)
                 .Include(store => store.StoreData)
                 .Join(ctx.Apps, us => us.StoreDataId, app => app.StoreDataId, (us, app) => new { us, app })
+                .Where(b => types.Contains(b.app.AppType) && (!b.app.Archived || b.app.Archived == includeArchived))
                 .OrderBy(b => b.app.Created)
                 .ToArrayAsync()).Select(arg => new ListAppsViewModel.ListAppViewModel
             {
@@ -263,6 +271,7 @@ namespace BTCPayServer.Services.Apps
                 AppType = arg.app.AppType,
                 Id = arg.app.Id,
                 Created = arg.app.Created,
+                Archived = arg.app.Archived,
                 App = arg.app
             }).ToArray();
 
@@ -299,11 +308,13 @@ namespace BTCPayServer.Services.Apps
             return style;
         }
 
-        public async Task<List<AppData>> GetApps(string[] appIds, bool includeStore = false)
+        public async Task<List<AppData>> GetApps(string[] appIds, bool includeStore = false, bool includeArchived = false)
         {
             await using var ctx = _ContextFactory.CreateContext();
+            var types = GetAvailableAppTypes().Select(at => at.Key);
             var query = ctx.Apps
-                .Where(app => appIds.Contains(app.Id));
+                .Where(app => appIds.Contains(app.Id))
+                .Where(app => types.Contains(app.AppType) && (!app.Archived || app.Archived == includeArchived));
             if (includeStore)
             {
                 query = query.Include(data => data.StoreData);
@@ -319,13 +330,13 @@ namespace BTCPayServer.Services.Apps
             return await query.ToListAsync();
         }
 
-        public async Task<AppData?> GetApp(string appId, string? appType, bool includeStore = false)
+        public async Task<AppData?> GetApp(string appId, string? appType, bool includeStore = false, bool includeArchived = false)
         {
             await using var ctx = _ContextFactory.CreateContext();
+            var types = GetAvailableAppTypes().Select(at => at.Key);
             var query = ctx.Apps
-                .Where(us => us.Id == appId &&
-                             (appType == null || us.AppType == appType));
-
+                .Where(us => us.Id == appId && (appType == null || us.AppType == appType))
+                .Where(app => types.Contains(app.AppType) && (!app.Archived || app.Archived == includeArchived));
             if (includeStore)
             {
                 query = query.Include(data => data.StoreData);
@@ -337,7 +348,6 @@ namespace BTCPayServer.Services.Apps
         {
             return _storeRepository.FindStore(app.StoreDataId);
         }
-        
 
         public static string SerializeTemplate(ViewPointOfSaleViewModel.Item[] items)
         {
@@ -358,15 +368,81 @@ namespace BTCPayServer.Services.Apps
                 return null;
             await using var ctx = _ContextFactory.CreateContext();
             var app = await ctx.UserStore
-                            .Include(store => store.StoreRole)
-                            .Where(us => us.ApplicationUserId == userId && us.StoreRole.Permissions.Contains(Policies.CanModifyStoreSettings))
-                            .SelectMany(us => us.StoreData.Apps.Where(a => a.Id == appId))
-               .FirstOrDefaultAsync();
+                .Include(store => store.StoreRole)
+                .Where(us => us.ApplicationUserId == userId && us.StoreRole.Permissions.Contains(Policies.CanModifyStoreSettings))
+                .SelectMany(us => us.StoreData.Apps.Where(a => a.Id == appId))
+                .FirstOrDefaultAsync();
             if (app == null)
                 return null;
             if (type != null && type != app.AppType)
                 return null;
             return app;
+        }
+
+        public async Task<AppData?> GetAppData(string userId, string appId, string? type = null)
+        {
+            if (userId == null || appId == null)
+                return null;
+            await using var ctx = _ContextFactory.CreateContext();
+            var app = await ctx.UserStore
+                .Where(us => us.ApplicationUserId == userId && us.StoreData != null && us.StoreData.UserStores.Any(u => u.ApplicationUserId == userId))
+                .SelectMany(us => us.StoreData.Apps.Where(a => a.Id == appId))
+                .FirstOrDefaultAsync();
+            if (app == null)
+                return null;
+            if (type != null && type != app.AppType)
+                return null;
+            return app;
+        }
+
+        record AppSettingsWithXmin(string apptype, string settings, uint xmin);
+        public record InventoryChange(string ItemId, int Delta);
+        public async Task UpdateInventory(string appId, InventoryChange[] changes)
+        {
+            await using var ctx = _ContextFactory.CreateContext();
+            // We use xmin to make sure we don't override changes made by another process
+retry:
+            var connection = ctx.Database.GetDbConnection();
+            var row = connection.QueryFirstOrDefault<AppSettingsWithXmin>(
+                "SELECT \"AppType\" AS apptype, \"Settings\" AS settings, xmin FROM \"Apps\" WHERE \"Id\"=@appId", new { appId }
+                );
+            if (row?.settings is null)
+                return;
+            var templatePath = row.apptype switch
+            {
+                CrowdfundAppType.AppType => "PerksTemplate",
+                _ => "Template"
+            };
+            var settings = JObject.Parse(row.settings);
+            if (!settings.TryGetValue(templatePath, out var template))
+                return;
+
+            var items = template.Type switch
+            {
+                JTokenType.String => JArray.Parse(template.Value<string>()!),
+                JTokenType.Array => (JArray)template,
+                _ => null
+            };
+            if (items is null)
+                return;
+            bool hasChange = false;
+            foreach (var change in changes)
+            {
+                var item = items.FirstOrDefault(i => i["id"]?.Value<string>() == change.ItemId && i["inventory"]?.Type is JTokenType.Integer);
+                if (item is null)
+                    continue;
+                var inventory = item["inventory"]!.Value<int>();
+                inventory += change.Delta;
+                item["inventory"] = inventory;
+                hasChange = true;
+            }
+            if (!hasChange)
+                return;
+            settings[templatePath] = items.ToString(Formatting.None);
+            var updated = await connection.ExecuteAsync("UPDATE \"Apps\" SET \"Settings\"=@v::JSONB WHERE \"Id\"=@appId AND xmin=@xmin", new { appId, xmin = (int)row.xmin, v = settings.ToString(Formatting.None) }) == 1;
+            // If we can't update, it means someone else updated the row, so we need to retry
+            if (!updated)
+                goto retry;
         }
 
         public async Task UpdateOrCreateApp(AppData app)
@@ -402,52 +478,41 @@ namespace BTCPayServer.Services.Apps
             }
         }
 #nullable enable
-        public static bool TryParsePosCartItems(JObject? posData, [MaybeNullWhen(false)] out Dictionary<string, int> cartItems)
-        {
-            cartItems = null;
-            if (posData is null)
-                return false;
-            if (!posData.TryGetValue("cart", out var cartObject))
-                return false;
-            if (cartObject is null)
-                return false;
-            cartItems = new();
-            foreach (var o in cartObject.OfType<JObject>())
-            {
-                var id = o.GetValue("id", StringComparison.InvariantCulture)?.ToString();
-                if (id != null)
-                {
-                    var countStr = o.GetValue("count", StringComparison.InvariantCulture)?.ToString() ?? string.Empty;
-                    if (int.TryParse(countStr, out var count))
-                    {
-                        cartItems.TryAdd(id, count);
-                    }
-                }
-            }
-            return true;
-        }
         
         public static bool TryParsePosCartItems(JObject? posData, [MaybeNullWhen(false)] out List<PosCartItem> cartItems)
         {
             cartItems = null;
             if (posData is null)
                 return false;
-            if (!posData.TryGetValue("cart", out var cartObject))
+            if (!posData.TryGetValue("cart", out var cartObject) || cartObject is null)
                 return false;
-
-            cartItems = new List<PosCartItem>();
-            foreach (var o in cartObject.OfType<JObject>())
+            try
             {
-                var id = o.GetValue("id", StringComparison.InvariantCulture)?.ToString();
-                if (id == null) continue;
-                var countStr = o.GetValue("count", StringComparison.InvariantCulture)?.ToString() ?? string.Empty;
-                var price = o.GetValue("price")?.Value<decimal>() ?? 0m;
-                if (int.TryParse(countStr, out var count))
+                cartItems = new List<PosCartItem>();
+                foreach (var o in cartObject.OfType<JObject>())
                 {
-                    cartItems.Add(new PosCartItem { Id = id, Count = count, Price = price });
+                    var id = o.GetValue("id", StringComparison.InvariantCulture)?.ToString();
+                    if (id == null)
+                        continue;
+                    var countStr = o.GetValue("count", StringComparison.InvariantCulture)?.ToString() ?? string.Empty;
+                    var price = o.GetValue("price") switch
+                    {
+                        JValue v => v.Value<decimal>(),
+                        // Don't crash on legacy format
+                        JObject v2 => v2["value"]?.Value<decimal>() ?? 0m,
+                        _ => 0m
+                    };
+                    if (int.TryParse(countStr, out var count))
+                    {
+                        cartItems.Add(new PosCartItem { Id = id, Count = count, Price = price });
+                    }
                 }
+                return true;
             }
-            return true;
+            catch (FormatException)
+            {
+                return false;
+            }
         }
 
         public async Task SetDefaultSettings(AppData appData, string defaultCurrency)

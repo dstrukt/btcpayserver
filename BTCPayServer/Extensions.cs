@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -8,6 +10,7 @@ using System.Net.WebSockets;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.BIP78.Sender;
@@ -15,9 +18,9 @@ using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
-using BTCPayServer.Logging;
 using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
+using BTCPayServer.NTag424;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
 using BTCPayServer.Security;
@@ -28,10 +31,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using NBitcoin;
 using NBitcoin.Payment;
-using NBitpayClient;
+using NBXplorer.DerivationStrategy;
 using NBXplorer.Models;
 using Newtonsoft.Json;
 using InvoiceCryptoInfo = BTCPayServer.Services.Invoices.InvoiceCryptoInfo;
@@ -40,6 +42,86 @@ namespace BTCPayServer
 {
     public static class Extensions
     {
+        public static DerivationSchemeParser GetDerivationSchemeParser(this BTCPayNetwork network)
+        {
+            return new DerivationSchemeParser(network);
+        }
+
+        public static bool TryParseXpub(this DerivationSchemeParser derivationSchemeParser, string xpub,
+            ref DerivationSchemeSettings derivationSchemeSettings, bool electrum = false)
+        {
+            if (!electrum)
+            {
+                var isOD = Regex.Match(xpub, @"\(.*?\)").Success;
+                try
+                {
+                    var result = derivationSchemeParser.ParseOutputDescriptor(xpub);
+                    derivationSchemeSettings.AccountOriginal = xpub.Trim();
+                    derivationSchemeSettings.AccountDerivation = result.Item1;
+                    derivationSchemeSettings.AccountKeySettings = result.Item2.Select((path, i) => new AccountKeySettings()
+                    {
+                        RootFingerprint = path?.MasterFingerprint,
+                        AccountKeyPath = path?.KeyPath,
+                        AccountKey = result.Item1.GetExtPubKeys().ElementAt(i).GetWif(derivationSchemeParser.Network)
+                    }).ToArray();
+                    return true;
+                }
+                catch (Exception)
+                {
+                    if (isOD)
+                    {
+                        return false;
+                    } // otherwise continue and try to parse input as xpub
+                }
+            }
+            try
+            {
+                // Extract fingerprint and account key path from export formats that contain them.
+                // Possible formats: [fingerprint/account_key_path]xpub, [fingerprint]xpub, xpub
+                HDFingerprint? rootFingerprint = null;
+                KeyPath accountKeyPath = null;
+                var derivationRegex = new Regex(@"^(?:\[(\w+)(?:\/(.*?))?\])?(\w+)$", RegexOptions.IgnoreCase);
+                var match = derivationRegex.Match(xpub.Trim());
+                if (match.Success)
+                {
+                    if (!string.IsNullOrEmpty(match.Groups[1].Value))
+                        rootFingerprint = HDFingerprint.Parse(match.Groups[1].Value);
+                    if (!string.IsNullOrEmpty(match.Groups[2].Value))
+                        accountKeyPath = KeyPath.Parse(match.Groups[2].Value);
+                    if (!string.IsNullOrEmpty(match.Groups[3].Value))
+                        xpub = match.Groups[3].Value;
+                }
+                derivationSchemeSettings.AccountOriginal = xpub.Trim();
+                derivationSchemeSettings.AccountDerivation = electrum ? derivationSchemeParser.ParseElectrum(derivationSchemeSettings.AccountOriginal) : derivationSchemeParser.Parse(derivationSchemeSettings.AccountOriginal);
+                derivationSchemeSettings.AccountKeySettings = derivationSchemeSettings.AccountDerivation.GetExtPubKeys()
+                    .Select(key => new AccountKeySettings
+                    {
+                        AccountKey = key.GetWif(derivationSchemeParser.Network)
+                    }).ToArray();
+                if (derivationSchemeSettings.AccountDerivation is DirectDerivationStrategy direct && !direct.Segwit)
+                    derivationSchemeSettings.AccountOriginal = null; // Saving this would be confusing for user, as xpub of electrum is legacy derivation, but for btcpay, it is segwit derivation
+                // apply initial matches if there were no results from parsing
+                if (rootFingerprint != null && derivationSchemeSettings.AccountKeySettings[0].RootFingerprint == null)
+                {
+                    derivationSchemeSettings.AccountKeySettings[0].RootFingerprint = rootFingerprint;
+                }
+                if (accountKeyPath != null && derivationSchemeSettings.AccountKeySettings[0].AccountKeyPath == null)
+                {
+                    derivationSchemeSettings.AccountKeySettings[0].AccountKeyPath = accountKeyPath;
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public static CardKey CreatePullPaymentCardKey(this IssuerKey issuerKey, byte[] uid, int version, string pullPaymentId)
+        {
+            var data = Encoding.UTF8.GetBytes(pullPaymentId);
+            return issuerKey.CreateCardKey(uid, version, data);
+        }
         public static DateTimeOffset TruncateMilliSeconds(this DateTimeOffset dt) => new (dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, 0, dt.Offset);
         public static decimal? GetDue(this InvoiceCryptoInfo invoiceCryptoInfo)
         {
@@ -83,19 +165,43 @@ namespace BTCPayServer
             return endpoint != null;
         }
 
-        public static bool IsSafe(this LightningConnectionString connectionString)
+        public static Uri GetServerUri(this ILightningClient client)
         {
-            if (connectionString.CookieFilePath != null ||
-                connectionString.MacaroonDirectoryPath != null ||
-                connectionString.MacaroonFilePath != null)
+            var kv = LightningConnectionStringHelper.ExtractValues(client.ToString(), out _);
+            
+            return !kv.TryGetValue("server", out var server) ? null : new Uri(server, UriKind.Absolute);
+        }
+
+        public static string GetDisplayName(this ILightningClient client)
+        {
+            LightningConnectionStringHelper.ExtractValues(client.ToString(), out var type);
+
+            var lncType = typeof(LightningConnectionType);
+            var fields = lncType.GetFields(BindingFlags.Public | BindingFlags.Static);
+            var field = fields.FirstOrDefault(f => f.GetValue(lncType)?.ToString() == type);
+            if (field == null) return type;
+            DisplayAttribute attr = field.GetCustomAttribute<DisplayAttribute>();
+            return attr?.Name ?? type;
+        }
+
+        public static bool IsSafe(this ILightningClient client)
+        {
+            var kv = LightningConnectionStringHelper.ExtractValues(client.ToString(), out _);
+            if (kv.TryGetValue("cookiefilepath", out _)  ||
+                kv.TryGetValue("macaroondirectorypath", out _)  ||
+                kv.TryGetValue("macaroonfilepath", out _) )
                 return false;
 
-            var uri = connectionString.BaseUri;
+            if (!kv.TryGetValue("server", out var server))
+            {
+                return true;
+            }
+            var uri = new Uri(server, UriKind.Absolute);
             if (uri.Scheme.Equals("unix", StringComparison.OrdinalIgnoreCase))
                 return false;
-            if (!NBitcoin.Utils.TryParseEndpoint(uri.DnsSafeHost, 80, out var endpoint))
+            if (!Utils.TryParseEndpoint(uri.DnsSafeHost, 80, out _))
                 return false;
-            return !Extensions.IsLocalNetwork(uri.DnsSafeHost);
+            return !IsLocalNetwork(uri.DnsSafeHost);
         }
 
         public static IQueryable<TEntity> Where<TEntity>(this Microsoft.EntityFrameworkCore.DbSet<TEntity> obj, System.Linq.Expressions.Expression<Func<TEntity, bool>> predicate) where TEntity : class
@@ -399,42 +505,6 @@ namespace BTCPayServer
                 }
             };
             return controller.View("PostRedirect", redirectVm);
-        }
-
-        public static BTCPayNetworkProvider ConfigureNetworkProvider(this IConfiguration configuration, Logs logs)
-        {
-            var _networkType = DefaultConfiguration.GetNetworkType(configuration);
-            var supportedChains = configuration.GetOrDefault<string>("chains", "btc")
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(t => t.ToUpperInvariant()).ToHashSet();
-            foreach (var c in supportedChains.ToList())
-            {
-                if (new[] { "ETH", "USDT20", "FAU" }.Contains(c, StringComparer.OrdinalIgnoreCase))
-                {
-                    logs.Configuration.LogWarning($"'{c}' is not anymore supported, please remove it from 'chains'");
-                    supportedChains.Remove(c);
-                }
-            }
-            var networkProvider = new BTCPayNetworkProvider(_networkType);
-            var filtered = networkProvider.Filter(supportedChains.ToArray());
-#if ALTCOINS
-            supportedChains.AddRange(filtered.GetAllElementsSubChains(networkProvider));
-#endif
-#if !ALTCOINS
-            var onlyBTC = supportedChains.Count == 1 && supportedChains.First() == "BTC";
-            if (!onlyBTC)
-                throw new ConfigException($"This build of BTCPay Server does not support altcoins");
-#endif
-            var result = networkProvider.Filter(supportedChains.ToArray());
-            foreach (var chain in supportedChains)
-            {
-                if (result.GetNetwork<BTCPayNetworkBase>(chain) == null)
-                    throw new ConfigException($"Invalid chains \"{chain}\"");
-            }
-
-            logs.Configuration.LogInformation(
-                "Supported chains: " + String.Join(',', supportedChains.ToArray()));
-            return result;
         }
 
         public static DataDirectories Configure(this DataDirectories dataDirectories, IConfiguration configuration)

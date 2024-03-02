@@ -27,6 +27,26 @@
     visibility: hidden;
 }
 
+/* Form validation messages should match alert styles */
+.validation-summary-errors {
+    padding: .75rem 1rem;
+    margin-bottom: 1.5rem;
+    color: var(--btcpay-danger-text);
+    background-color: var(--btcpay-danger);
+    border: var(--btcpay-border-width) solid var(--btcpay-danger-border);
+    border-radius: var(--btcpay-border-radius);
+}
+
+.alert > :last-child,
+.validation-summary-errors > :last-child {
+    margin-bottom: 0;
+}
+
+.no-marker > ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+
 /* General and site-wide Bootstrap modifications */
 p {
     margin-bottom: 1.5rem;
@@ -76,17 +96,13 @@ hr.primary {
 
 @media (min-width: 1400px) {
     .col-xxl-constrain {
-        max-width: 800px;
+        max-width: 984px;
     }
 }
 
 a.unobtrusive-link {
     color: inherit;
     text-decoration: inherit;
-}
-
-.btn.btn-link:focus {
-    box-shadow: none;
 }
 
 [aria-expanded] > svg.icon-caret-down {
@@ -101,31 +117,40 @@ a.unobtrusive-link {
     transform: rotate(-180deg);
 }
 
+/* Icon and text, used for warnings of additional info text. Adjust spacing and color via utility classes. */
+.info-note {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--btcpay-space-s);
+}
+
+.info-note .icon {
+    position: relative;
+    top: var(--btcpay-space-xs);
+}
+
 /* Badges */
-.badge-pending,
-.badge-new {
+.badge-new,
+.badge-pending {
     background: #d4edda;
     color: #000;
 }
-
 .badge-expired {
     background: #eee;
     color: #000;
 }
-
 .badge-invalid {
-    background: #c94a47;
-    color: #fff;
+    background: var(--btcpay-danger);
+    color: var(--btcpay-danger-text);
 }
-
+.badge-unusual,
 .badge-processing {
-    background: #f1c332;
-    color: #000;
+    background: var(--btcpay-warning);
+    color: var(--btcpay-warning-text);
 }
-
 .badge-settled {
-    background: #329f80;
-    color: #fff;
+    background: var(--btcpay-success);
+    color: var(--btcpay-success-text);
 }
 
 /* Info icons in main headline */
@@ -157,11 +182,7 @@ h2 svg.icon.icon-info {
     cursor: pointer;
     padding: 0;
 }
-@media (min-width: 1400px) {
-    #MassAction {
-        margin-top: -4rem;
-    }
-}
+
 /* Prevent layout from breaking on hyperlinks with very long URLs as the visible text */
 .invoice-details a {
     word-break: break-word;
@@ -226,7 +247,8 @@ h2 svg.icon.icon-info {
 
 /* Print */
 @media print {
-    section {
+    section,
+    .tile {
         page-break-inside: avoid;
     }
     .table-responsive {
@@ -252,27 +274,20 @@ h2 svg.icon.icon-info {
     a {
         text-decoration: none !important;
     }
+    .buttons,
     .toasted-container {
         display: none !important;
     }
     .truncate-center a,
     .truncate-center button,
     .truncate-center-truncated {
-        display: none;
+        display: none !important;
     }
     .card {
         page-break-inside: avoid;
     }
-    #markStatusDropdownMenuButton {
-        border: 0;
-        background: transparent;
-        padding: 0 !important;
-        color: inherit;
-        font-weight:  var(--btcpay-font-weight-normal);
-        font-size: var(--btcpay-body-font-size);
-    }
-    #markStatusDropdownMenuButton::after {
-        content: none;
+    .actions-col {
+        display: none;
     }
 }
 
@@ -656,28 +671,56 @@ input:checked + label.btcpay-list-select-item {
 }
 
 /* Public pages */
-.public-page-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    margin: 0 auto;
-    padding: var(--btcpay-space-l) var(--btcpay-space-m);
-}
-
-/* gradually try to set better but less supported values and units */
-.min-vh-100,
-.public-page-wrap {
-    min-height: -webkit-fill-available !important;
-    min-height: 100dvh !important;
-}
-
-@media (max-width: 400px) {
+@media screen {
     .public-page-wrap {
-        padding-left: 0;
-        padding-right: 0;
+        --wrap-max-width: none;
+        --wrap-padding-vertical: var(--btcpay-space-l);
+        --wrap-padding-horizontal: var(--btcpay-space-m);
+        
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        max-width: var(--wrap-max-width);
+        margin: 0 auto;
+        padding: var(--wrap-padding-vertical) var(--wrap-padding-horizontal);
+    }
+    
+    /* gradually try to set better but less supported values and units */
+    .min-vh-100,
+    .public-page-wrap {
+        min-height: -webkit-fill-available !important;
+        min-height: 100dvh !important;
+    }
+    .tile {
+        --tile-padding: 1.5rem;
+        --tile-border-radius: var(--btcpay-border-radius-l);
+
+        padding: var(--tile-padding);
+        background: var(--btcpay-bg-tile);
+        border-radius: var(--tile-border-radius);
+        box-shadow: var(--btcpay-box-shadow-lg);
+    }
+    .tile .buttons {
+        display: flex;
+        flex-direction: column;
+        gap: var(--btcpay-space-m);
+    }
+    .tile > :last-child {
+        margin-bottom: 0;
     }
 }
 
+@media screen and (max-width: 400px) {
+    .public-page-wrap {
+        --wrap-padding-horizontal: 0;
+    }
+    .tile {
+        --tile-padding: 1rem;
+        --tile-border-radius: none;
+    }
+}
+
+/* Store Header */
 .store-header {
     display: flex;
     flex-direction: column;
@@ -688,10 +731,9 @@ input:checked + label.btcpay-list-select-item {
 .store-logo {
     --logo-size: 3rem;
     --logo-bg: transparent;
-    --logo-radius: 50%;
+    --logo-radius: 0;
 
-    width: var(--logo-size);
-    height: var(--logo-size);
+    max-height: var(--logo-size);
     background: var(--logo-bg);
     border-radius: var(--logo-radius);
 }
@@ -723,6 +765,7 @@ a.store-powered-by svg {
     height: 2rem;
     width: 4rem;
 }
+.store-footer a:hover,
 a.store-powered-by:hover {
     color: var(--btcpay-body-text-hover);
 }
@@ -805,7 +848,7 @@ a.store-powered-by:hover .logo-brand-dark {
 }
 
 .ts-wrapper.form-control:not(.ts-inline) .ts-control {
-    padding: .5rem !important;
+    padding: .5rem 1rem !important;
     border-radius: var(--btcpay-border-radius) !important;
 }
 
@@ -814,12 +857,16 @@ a.store-powered-by:hover .logo-brand-dark {
     box-shadow: 0 0 0 1px var(--btcpay-form-border-focus) inset;
 }
 
+.ts-wrapper.form-control,
+.ts-wrapper.form-control .ts-control {
+    min-height: auto !important;
+}
+
 .ts-wrapper.form-control.ts-inline,
 .ts-wrapper.form-control.ts-inline .ts-control {
     padding: 0 !important;
     border: none !important;
     box-shadow: none !important;
-    min-height: auto !important;
     background: transparent !important;
 }
 
@@ -966,6 +1013,11 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     text-overflow: ellipsis;
 }
 
+.truncate-center-end,
+.truncate-center-start {
+    white-space: nowrap;
+}
+
 .truncate-center-id {
     font-family: var(--btcpay-font-monospace);
     font-size: .875em;
@@ -1063,4 +1115,100 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
 }
 .btn[data-clipboard-confirming] {
     color: var(--btcpay-success) !important;
+}
+
+.blazor-status .btn-close .icon {
+    width: .75rem;
+    height: .75rem;
+}
+
+/* Tables */
+.date-col {
+    min-width: 8rem;
+}
+.amount-col {
+    text-align: right;
+    white-space: nowrap;
+}
+.actions-col {
+    text-align: right;
+}
+
+/* Mass Actions */
+.mass-action-head,
+.mass-action-actions {
+    position: -webkit-sticky;
+    position: sticky;
+    top: var(--sticky-header-height);
+    z-index: 10;
+    background-color: var(--btcpay-body-bg);
+}
+.mass-action thead th::after {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-bottom: 1px solid;
+    border-color: inherit;
+    pointer-events: none;
+}
+.mass-action > .mass-action-actions,
+.mass-action[data-selected] > .mass-action-head {
+    display: none;
+}
+.mass-action[data-selected] > .mass-action-actions {
+    display: table-header-group;
+    border-top-width: 0;
+}
+.mass-action > .mass-action-actions button {
+    display: inline-flex;
+    align-items: center;
+    height: 1.4rem;
+    padding: 0;
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.mass-action > .mass-action-actions button .icon {
+    --btn-icon-size: 1.75rem;
+}
+.mass-action .mass-action-select-col {
+    width: 2rem;
+}
+
+/*
+ Responsive table adjustments: Reset sticky header height,
+ because it doesn't work in containers with overflow auto.
+*/
+.table-responsive{
+    --sticky-header-height: 0;
+}
+@media (max-width: 575.98px) {
+    .table-responsive-sm {
+        --sticky-header-height: 0;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .table-responsive-md {
+        --sticky-header-height: 0;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .table-responsive-lg {
+        --sticky-header-height: 0;
+    }
+}
+
+@media (max-width: 1199.98px) {
+    .table-responsive-xl {
+        --sticky-header-height: 0;
+    }
+}
+
+@media (max-width: 1399.98px) {
+    .table-responsive-xxl {
+        --sticky-header-height: 0;
+    }
 }

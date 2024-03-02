@@ -74,10 +74,10 @@ namespace BTCPayServer.Security
                 // resolve from app
                 if (routeData.Values.TryGetValue("appId", out var vAppId) && vAppId is string appId)
                 {
-                    app = await _appService.GetAppDataIfOwner(userId, appId);
+                    app = await _appService.GetAppData(userId, appId);
                     if (storeId == null)
                     {
-                        storeId = app?.StoreDataId ?? String.Empty;
+                        storeId = app?.StoreDataId ?? string.Empty;
                     }
                     else if (app?.StoreDataId != storeId)
                     {
@@ -90,7 +90,7 @@ namespace BTCPayServer.Security
                     paymentRequest = await _paymentRequestRepository.FindPaymentRequest(payReqId, userId);
                     if (storeId == null)
                     {
-                        storeId = paymentRequest?.StoreDataId ?? String.Empty;
+                        storeId = paymentRequest?.StoreDataId ?? string.Empty;
                     }
                     else if (paymentRequest?.StoreDataId != storeId)
                     {
@@ -103,7 +103,7 @@ namespace BTCPayServer.Security
                     invoice = await _invoiceRepository.GetInvoice(invoiceId);
                     if (storeId == null)
                     {
-                        storeId = invoice?.StoreId ?? String.Empty;
+                        storeId = invoice?.StoreId ?? string.Empty;
                     }
                     else if (invoice?.StoreId != storeId)
                     {
@@ -126,7 +126,10 @@ namespace BTCPayServer.Security
 
             if (!string.IsNullOrEmpty(storeId))
             {
-                store = await _storeRepository.FindStore(storeId, userId);
+                var cachedStore = _httpContext.GetStoreData();
+                store = cachedStore?.Id == storeId
+                    ? cachedStore
+                    : await _storeRepository.FindStore(storeId, userId);
             }
 
             if (Policies.IsServerPolicy(policy) && isAdmin)
@@ -165,14 +168,15 @@ namespace BTCPayServer.Security
                 {
                     if (store != null)
                     {
-                        _httpContext.SetStoreData(store);
+                        if (_httpContext.GetStoreData()?.Id != store.Id)
+                            _httpContext.SetStoreData(store);
 
                         // cache associated entities if present
-                        if (app != null)
+                        if (app != null && _httpContext.GetAppData()?.Id != app.Id)
                             _httpContext.SetAppData(app);
-                        if (invoice != null)
+                        if (invoice != null && _httpContext.GetInvoiceData()?.Id != invoice.Id)
                             _httpContext.SetInvoiceData(invoice);
-                        if (paymentRequest != null)
+                        if (paymentRequest != null && _httpContext.GetPaymentRequestData()?.Id != paymentRequest.Id)
                             _httpContext.SetPaymentRequestData(paymentRequest);
                     }
                 }

@@ -8,17 +8,19 @@ namespace BTCPayServer
 {
     public static class MoneyExtensions
     {
-        public static decimal GetValue(this IMoney m, BTCPayNetwork network = null)
+        public static decimal GetValue(this IMoney m, BTCPayNetwork network)
         {
             switch (m)
             {
+                case null:
+                    return 0m;
                 case Money money:
                     return money.ToDecimal(MoneyUnit.BTC);
                 case MoneyBag mb:
                     return mb.Select(money => money.GetValue(network)).Sum();
 #if ALTCOINS
                 case AssetMoney assetMoney:
-                    if (network is ElementsBTCPayNetwork elementsBTCPayNetwork)
+                    if (network is BTCPayServer.Plugins.Altcoins.ElementsBTCPayNetwork elementsBTCPayNetwork)
                     {
                         return elementsBTCPayNetwork.AssetId == assetMoney.AssetId
                             ? Convert(assetMoney.Quantity, elementsBTCPayNetwork.Divisibility)

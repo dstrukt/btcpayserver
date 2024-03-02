@@ -1,6 +1,10 @@
+#PosPrint,
+#PosStatic {
+    --wrap-max-width: 1320px;
+}
+
 .lead {
     max-width: 36em;
-    text-align: center;
     margin: 0 auto 2.5rem;
 }
 .lead :last-child {
@@ -56,5 +60,4 @@
 .posItem .card .card-img-top {
     max-height: 210px;
     object-fit: scale-down;
-    margin-bottom: auto;
 }

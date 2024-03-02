@@ -759,7 +759,7 @@ namespace BTCPayServer.Controllers.Greenfield
         }
 
         public override async Task<IEnumerable<OnChainWalletTransactionData>> ShowOnChainWalletTransactions(
-            string storeId, string cryptoCode, TransactionStatus[] statusFilter = null, string labelFilter = null,
+            string storeId, string cryptoCode, TransactionStatus[] statusFilter = null, string labelFilter = null, int skip = 0,
             CancellationToken token = default)
         {
             return GetFromActionResult<IEnumerable<OnChainWalletTransactionData>>(
@@ -1084,6 +1084,13 @@ namespace BTCPayServer.Controllers.Greenfield
                     new LockUserRequest { Locked = disabled }));
         }
 
+        public override async Task<bool> ApproveUser(string idOrEmail, bool approved, CancellationToken token = default)
+        {
+            return GetFromActionResult<bool>(
+                await GetController<GreenfieldUsersController>().ApproveUser(idOrEmail,
+                    new ApproveUserRequest { Approved = approved }));
+        }
+
         public override async Task<OnChainWalletTransactionData> PatchOnChainWalletTransaction(string storeId,
             string cryptoCode, string transactionId,
             PatchOnChainTransactionRequest request, bool force = false, CancellationToken token = default)
@@ -1273,6 +1280,11 @@ namespace BTCPayServer.Controllers.Greenfield
         public override async Task<PayoutData> GetPullPaymentPayout(string pullPaymentId, string payoutId, CancellationToken cancellationToken = default)
         {
             return GetFromActionResult<PayoutData>(await GetController<GreenfieldPullPaymentController>().GetPayout(pullPaymentId, payoutId));
+        }
+
+        public override async Task<RegisterBoltcardResponse> RegisterBoltcard(string pullPaymentId, RegisterBoltcardRequest request, CancellationToken cancellationToken = default)
+        {
+            return GetFromActionResult<RegisterBoltcardResponse>(await GetController<GreenfieldPullPaymentController>().RegisterBoltcard(pullPaymentId, request));
         }
 
         public override async Task<PullPaymentLNURL> GetPullPaymentLNURL(string pullPaymentId, CancellationToken cancellationToken = default)

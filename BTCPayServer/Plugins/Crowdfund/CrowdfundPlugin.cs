@@ -8,14 +8,14 @@ using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Abstractions.Services;
 using BTCPayServer.Configuration;
 using BTCPayServer.Data;
+using BTCPayServer.Models;
 using BTCPayServer.Plugins.Crowdfund.Controllers;
 using BTCPayServer.Plugins.Crowdfund.Models;
-using BTCPayServer.Plugins.PointOfSale;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
-using Ganss.XSS;
+using Ganss.Xss;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -44,7 +44,6 @@ namespace BTCPayServer.Plugins.Crowdfund
         private readonly IOptions<BTCPayServerOptions> _options;
         private readonly DisplayFormatter _displayFormatter;
         private readonly CurrencyNameTable _currencyNameTable;
-        private readonly HtmlSanitizer _htmlSanitizer;
         private readonly InvoiceRepository _invoiceRepository;
         public const string AppType = "Crowdfund";
 
@@ -53,15 +52,13 @@ namespace BTCPayServer.Plugins.Crowdfund
             IOptions<BTCPayServerOptions> options,
             InvoiceRepository invoiceRepository,
             DisplayFormatter displayFormatter,
-            CurrencyNameTable currencyNameTable,
-            HtmlSanitizer htmlSanitizer)
+            CurrencyNameTable currencyNameTable)
         {
             Description = Type = AppType;
             _linkGenerator = linkGenerator;
             _options = options;
             _displayFormatter = displayFormatter;
             _currencyNameTable = currencyNameTable;
-            _htmlSanitizer = htmlSanitizer;
             _invoiceRepository = invoiceRepository;
         }
 
@@ -177,19 +174,23 @@ namespace BTCPayServer.Plugins.Crowdfund
 
             var store = appData.StoreData;
             var storeBlob = store.GetStoreBlob();
-
+            var storeBranding = new StoreBrandingViewModel(storeBlob)
+            {
+                CustomCSSLink = settings.CustomCSSLink,
+                EmbeddedCSS = settings.EmbeddedCSS
+            };
+            var formUrl = settings.FormId != null
+                ? _linkGenerator.GetPathByAction(nameof(UICrowdfundController.CrowdfundForm), "UICrowdfund",
+                    new { appId = appData.Id }, _options.Value.RootPath)
+                : null;
             return new ViewCrowdfundViewModel
             {
                 Title = settings.Title,
                 Tagline = settings.Tagline,
                 Description = settings.Description,
-                CustomCSSLink = settings.CustomCSSLink,
                 MainImageUrl = settings.MainImageUrl,
-                EmbeddedCSS = settings.EmbeddedCSS,
                 StoreName = store.StoreName,
-                CssFileId = storeBlob.CssFileId,
-                LogoFileId = storeBlob.LogoFileId,
-                BrandColor = storeBlob.BrandColor,
+                StoreBranding = storeBranding,
                 StoreId = appData.StoreDataId,
                 AppId = appData.Id,
                 StartDate = settings.StartDate?.ToUniversalTime(),
@@ -209,6 +210,7 @@ namespace BTCPayServer.Plugins.Crowdfund
                 PerkCount = perkCount,
                 PerkValue = perkValue,
                 NeverReset = settings.ResetEvery == CrowdfundResetEvery.Never,
+                FormUrl = formUrl,
                 Sounds = settings.Sounds,
                 AnimationColors = settings.AnimationColors,
                 CurrencyData = _currencyNameTable.GetCurrencyData(settings.TargetCurrency, true),

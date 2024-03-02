@@ -7,6 +7,7 @@ using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Configuration;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
@@ -35,6 +36,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
         private readonly LightningClientFactoryService _lightningClientFactoryService;
         private readonly IOptions<LightningNetworkOptions> _options;
         private readonly IAuthorizationService _authorizationService;
+        private readonly EventAggregator _eventAggregator;
         private readonly StoreRepository _storeRepository;
 
         public UILightningLikePayoutController(ApplicationDbContextFactory applicationDbContextFactory,
@@ -44,7 +46,9 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             BTCPayNetworkProvider btcPayNetworkProvider,
             StoreRepository storeRepository,
             LightningClientFactoryService lightningClientFactoryService,
-            IOptions<LightningNetworkOptions> options, IAuthorizationService authorizationService)
+            IOptions<LightningNetworkOptions> options, 
+            IAuthorizationService authorizationService,
+            EventAggregator eventAggregator)
         {
             _applicationDbContextFactory = applicationDbContextFactory;
             _userManager = userManager;
@@ -55,6 +59,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             _options = options;
             _storeRepository = storeRepository;
             _authorizationService = authorizationService;
+            _eventAggregator = eventAggregator;
         }
 
         private async Task<List<PayoutData>> GetPayouts(ApplicationDbContext dbContext, PaymentMethodId pmi,
@@ -72,7 +77,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
 
             return (await dbContext.Payouts
                     .Include(data => data.PullPaymentData)
-                    .ThenInclude(data => data.StoreData)
+                    .Include(data => data.StoreData)
                     .ThenInclude(data => data.UserStores)
                     .ThenInclude(data => data.StoreRole)
                     .Where(data =>
@@ -82,11 +87,11 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                     .ToListAsync())
                 .Where(payout =>
                 {
-                    if (approvedStores.TryGetValue(payout.PullPaymentData.StoreId, out var value))
+                    if (approvedStores.TryGetValue(payout.StoreDataId, out var value))
                         return value;
-                    value = payout.PullPaymentData.StoreData.UserStores
+                    value = payout.StoreData.UserStores
                         .Any(store => store.ApplicationUserId == userId && store.StoreRole.Permissions.Contains(Policies.CanModifyStoreSettings));
-                    approvedStores.Add(payout.PullPaymentData.StoreId, value);
+                    approvedStores.Add(payout.StoreDataId, value);
                     return value;
                 }).ToList();
         }
@@ -125,7 +130,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
 
             await using var ctx = _applicationDbContextFactory.CreateContext();
 
-            var payouts = (await GetPayouts(ctx, pmi, payoutIds)).GroupBy(data => data.PullPaymentData.StoreId);
+            var payouts = (await GetPayouts(ctx, pmi, payoutIds)).GroupBy(data => data.StoreDataId);
             var results = new List<ResultVM>();
             var network = _btcPayNetworkProvider.GetNetwork<BTCPayNetwork>(pmi.CryptoCode);
 
@@ -134,7 +139,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             var authorizedForInternalNode = (await _authorizationService.AuthorizeAsync(User, null, new PolicyRequirement(Policies.CanModifyServerSettings))).Succeeded;
             foreach (var payoutDatas in payouts)
             {
-                var store = payoutDatas.First().PullPaymentData.StoreData;
+                var store = payoutDatas.First().StoreData;
 
                 var lightningSupportedPaymentMethod = store.GetSupportedPaymentMethods(_btcPayNetworkProvider)
                     .OfType<LightningSupportedPaymentMethod>()
@@ -214,6 +219,16 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             }
 
             await ctx.SaveChangesAsync();
+            foreach (var payoutG in payouts)
+            {
+                foreach (PayoutData payout in payoutG)
+                {
+                    if (payout.State != PayoutState.AwaitingPayment)
+                    {
+                        _eventAggregator.Publish(new PayoutEvent(PayoutEvent.PayoutEventType.Updated, payout));
+                    }
+                }
+            }
             return View("LightningPayoutResult", results);
         }
         public static async Task<(BOLT11PaymentRequest, ResultVM)> GetInvoiceFromLNURL(PayoutData payoutData,
@@ -289,7 +304,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                 };
             }
 
-            var proofBlob = new PayoutLightningBlob() { PaymentHash = bolt11PaymentRequest.PaymentHash.ToString() };
+            var proofBlob = new PayoutLightningBlob { PaymentHash = bolt11PaymentRequest.PaymentHash.ToString() };
             try
             {
                 var result = await lightningClient.Pay(bolt11PaymentRequest.ToString(),
@@ -298,6 +313,8 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                         // CLN does not support explicit amount param if it is the same as the invoice amount
                         Amount = payoutBlob.CryptoAmount == bolt11PaymentRequest.MinimumAmount.ToDecimal(LightMoneyUnit.BTC)? null: new LightMoney((decimal)payoutBlob.CryptoAmount, LightMoneyUnit.BTC)
                     }, cancellationToken);
+                if (result == null) throw new NoPaymentResultException();
+                
                 string message = null;
                 if (result.Result == PayResult.Ok)
                 {
@@ -330,7 +347,7 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                     Message = message
                 };
             }
-            catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
+            catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException or NoPaymentResultException)
             {
                 // Timeout, potentially caused by hold invoices
                 // Payment will be saved as pending, the LightningPendingPayoutListener will handle settling/cancelling
@@ -346,7 +363,6 @@ namespace BTCPayServer.Data.Payouts.LightningLike
                 };
             }
         }
-
 
         private async Task SetStoreContext()
         {
@@ -376,5 +392,9 @@ namespace BTCPayServer.Data.Payouts.LightningLike
             public string Destination { get; set; }
             public decimal Amount { get; set; }
         }
+    }
+
+    public class NoPaymentResultException : Exception
+    {
     }
 }

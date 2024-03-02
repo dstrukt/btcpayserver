@@ -44,20 +44,13 @@ const posCommon = {
         totalNumeric () {
             return parseFloat(parseFloat(this.total).toFixed(this.currencyInfo.divisibility))
         },
-        calculation () {
-            if (!this.tipNumeric && !this.discountNumeric) return null
-            let calc = this.formatCurrency(this.amountNumeric, true)
-            if (this.discountNumeric > 0) calc += ` - ${this.formatCurrency(this.discountNumeric, true)} (${this.discountPercent}%)`
-            if (this.tipNumeric > 0) calc += ` + ${this.formatCurrency(this.tipNumeric, true)}`
-            if (this.tipPercent) calc += ` (${this.tipPercent}%)`
-            return calc
-        },
         posdata () {
             const data = {
                 subTotal: this.amountNumeric,
                 total: this.totalNumeric
             }
             if (this.tipNumeric > 0) data.tip = this.tipNumeric
+            if (this.tipPercent > 0) data.tipPercentage = this.tipPercent
             if (this.discountNumeric > 0) data.discountAmount = this.discountNumeric
             if (this.discountPercentNumeric > 0) data.discountPercentage = this.discountPercentNumeric
             return JSON.stringify(data)
@@ -92,9 +85,6 @@ const posCommon = {
                 ? percentage
                 : null;
         },
-        unsetPayButtonLoading () {
-            this.payButtonLoading = false
-        },
         formatCrypto (value, withSymbol) {
             const symbol = withSymbol ? ` ${this.currencySymbol || this.currencyCode}` : ''
             const { divisibility } = this.currencyInfo
@@ -103,7 +93,7 @@ const posCommon = {
         formatCurrency (value, withSymbol) {
             const currency = this.currencyCode
             if (currency === 'BTC' || currency === 'SATS') return this.formatCrypto(value, withSymbol)
-            const { divisibility } = this.currencyInfo
+            const { divisibility } = this.currencyInfo;
             const locale = this.getLocale(currency);
             const style = withSymbol ? 'currency' : 'decimal'
             const opts = { currency, style, maximumFractionDigits: divisibility, minimumFractionDigits: divisibility }

@@ -10,44 +10,48 @@
 
 @if (Model.Items.Any())
 {
+    var hasCart = Model.Items.ContainsKey("Cart");
     <table class="table my-0" v-pre>
-        @if (Model.Items.ContainsKey("Cart"))
+        @if (hasCart || (Model.Items.ContainsKey("Subtotal") && Model.Items.ContainsKey("Total")))
         {
-            <tbody>
-                @foreach (var (key, value) in (Dictionary <string, object>)Model.Items["Cart"])
+            @if (hasCart)
+            {
+                <tbody>
+                @foreach (var (key, value) in (Dictionary<string, object>)Model.Items["Cart"])
                 {
                     <tr>
-                        <td>@key</td>
+                        <th>@key</th>
                         <td class="text-end">@value</td>
                     </tr>
                 }
-            </tbody>
-            <tfoot style="border-top-width:3px">
+                </tbody>
+            }
+            <tfoot style="border-top-width:@(hasCart ? "3px" : "0")">
                 @if (Model.Items.ContainsKey("Subtotal"))
                 {
                     <tr>
-                        <td>Subtotal</td>
+                        <th>Subtotal</th>
                         <td class="text-end">@Model.Items["Subtotal"]</td>
                     </tr>
                 }
                 @if (Model.Items.ContainsKey("Discount"))
                 {
                     <tr>
-                        <td>Discount</td>
+                        <th>Discount</th>
                         <td class="text-end">@Model.Items["Discount"]</td>
                     </tr>
                 }
                 @if (Model.Items.ContainsKey("Tip"))
                 {
                     <tr>
-                        <td>Tip</td>
+                        <th>Tip</th>
                         <td class="text-end">@Model.Items["Tip"]</td>
                     </tr>
                 }
                 @if (Model.Items.ContainsKey("Total"))
                 {
                     <tr style="border-top-width:3px">
-                        <td>Total</td>
+                        <th>Total</th>
                         <td class="text-end">@Model.Items["Total"]</td>
                     </tr>
                 }
@@ -62,7 +66,7 @@
                     {
                         if (!string.IsNullOrEmpty(key))
                         {
-                            <th class="w-225px">@key</th>
+                            <th>@key</th>
                         }
                         <td style="white-space:pre-wrap">@* Explicitely remove whitespace at front here *@@if (IsValidURL(str)){<a href="@str" target="_blank" rel="noreferrer noopener">@str</a>}else {@str.Trim()}</td>
                     }
@@ -72,7 +76,7 @@
                             @{
                                 @if (!string.IsNullOrEmpty(key))
                                 {
-                                    Write(Html.Raw($"<h{Model.Level + 3} class=\"mt-4 mb-3\">"));
+                                    Write(Html.Raw($"<h{Model.Level + 3} class=\"mb-3 fw-semibold\">"));
                                     Write(key);
                                     Write(Html.Raw($"</h{Model.Level + 3}>"));
                                 }
@@ -86,7 +90,7 @@
                             @{
                                 @if (!string.IsNullOrEmpty(key))
                                 {
-                                    Write(Html.Raw($"<h{Model.Level + 3} class=\"mt-4 mb-3\">"));
+                                    Write(Html.Raw($"<h{Model.Level + 3} class=\"mb-3 fw-semibold\">"));
                                     Write(key);
                                     Write(Html.Raw($"</h{Model.Level + 3}>"));
                                 }

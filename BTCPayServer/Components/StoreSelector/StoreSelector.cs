@@ -30,7 +30,9 @@ namespace BTCPayServer.Components.StoreSelector
             var userId = _userManager.GetUserId(UserClaimsPrincipal);
             var stores = await _storeRepo.GetStoresByUserId(userId);
             var currentStore = ViewContext.HttpContext.GetStoreData();
+            var archivedCount = stores.Count(s => s.Archived);
             var options = stores
+                .Where(store => !store.Archived)
                 .Select(store =>
                 {
                     var cryptoCode = store
@@ -39,14 +41,13 @@ namespace BTCPayServer.Components.StoreSelector
                         .FirstOrDefault()?
                         .Network.CryptoCode;
                     var walletId = cryptoCode != null ? new WalletId(store.Id, cryptoCode) : null;
-                    var role = store.GetStoreRoleOfUser(userId);
                     return new StoreSelectorOption
                     {
                         Text = store.StoreName,
                         Value = store.Id,
                         Selected = store.Id == currentStore?.Id,
                         WalletId = walletId,
-                        IsOwner = role != null && role.Permissions.Contains(Policies.CanModifyStoreSettings)
+                        Store = store
                     };
                 })
                 .OrderBy(s => s.Text)
@@ -59,7 +60,8 @@ namespace BTCPayServer.Components.StoreSelector
                 Options = options,
                 CurrentStoreId = currentStore?.Id,
                 CurrentDisplayName = currentStore?.StoreName,
-                CurrentStoreLogoFileId = blob?.LogoFileId
+                CurrentStoreLogoFileId = blob?.LogoFileId,
+                ArchivedCount = archivedCount
             };
 
             return View(vm);

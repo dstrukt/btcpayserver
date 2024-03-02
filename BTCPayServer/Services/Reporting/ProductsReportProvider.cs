@@ -1,42 +1,35 @@
-using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BTCPayServer.Data;
-using BTCPayServer.Rating;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
-using BTCPayServer.Services.Rates;
-using Dapper;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Internal;
-using Newtonsoft.Json;
-using Org.BouncyCastle.Crypto.Signers;
 
 namespace BTCPayServer.Services.Reporting;
 
 public class ProductsReportProvider : ReportProvider
 {
-    public ProductsReportProvider(InvoiceRepository invoiceRepository, CurrencyNameTable currencyNameTable, AppService apps)
+    public ProductsReportProvider(
+        InvoiceRepository invoiceRepository,
+        DisplayFormatter displayFormatter,
+        AppService apps)
     {
         InvoiceRepository = invoiceRepository;
-        CurrencyNameTable = currencyNameTable;
+        _displayFormatter = displayFormatter;
         Apps = apps;
     }
+    
+    private readonly DisplayFormatter _displayFormatter;
+    private InvoiceRepository InvoiceRepository { get; }
+    private AppService Apps { get; }
 
-    public InvoiceRepository InvoiceRepository { get; }
-    public CurrencyNameTable CurrencyNameTable { get; }
-    public AppService Apps { get; }
-
-    public override string Name => "Products sold";
+    public override string Name => "Sales";
 
     public override async Task Query(QueryContext queryContext, CancellationToken cancellation)
     {
         var appsById = (await Apps.GetApps(queryContext.StoreId)).ToDictionary(o => o.Id);
         var tagAllinvoicesApps = appsById.Values.Where(a => a.TagAllInvoices).ToList();
         queryContext.ViewDefinition = CreateDefinition();
-        foreach (var i in (await InvoiceRepository.GetInvoices(new InvoiceQuery()
+        foreach (var i in (await InvoiceRepository.GetInvoices(new InvoiceQuery
         {
             IncludeArchived = true,
             IncludeAddresses = false,
@@ -72,22 +65,21 @@ public class ProductsReportProvider : ReportProvider
                 {
                     values.Add(code);
                     values.Add(1);
-                    values.Add(i.Currency);
                     values.Add(i.Price);
+                    values.Add(i.Currency);
                     queryContext.Data.Add(values);
                 }
                 else
                 {
-                    var posData = i.Metadata?.PosData?.ToObject<PosAppData>();
-                    if (posData?.Cart is { } cart)
+                    if (AppService.TryParsePosCartItems(i.Metadata?.PosData, out var items))
                     {
-                        foreach (var item in cart)
+                        foreach (var item in items)
                         {
                             var copy = values.ToList();
                             copy.Add(item.Id);
                             copy.Add(item.Count);
-                            copy.Add(i.Currency);
                             copy.Add(item.Price * item.Count);
+                            copy.Add(i.Currency);
                             queryContext.Data.Add(copy);
                         }
                     }
@@ -97,13 +89,15 @@ public class ProductsReportProvider : ReportProvider
         // Round the currency amount
         foreach (var r in queryContext.Data)
         {
-            r[^1] = ((decimal)r[^1]).RoundToSignificant(CurrencyNameTable.GetCurrencyData((string)r[^2] ?? "USD", true).Divisibility);
+            var amount = (decimal)r[^2];
+            var currency = (string)r[^1] ?? "USD";
+            r[^2] = _displayFormatter.ToFormattedAmount(amount, currency);
         }
     }
 
     private ViewDefinition CreateDefinition()
     {
-        return new ViewDefinition()
+        return new ViewDefinition
         {
             Fields =
             {
@@ -112,15 +106,15 @@ public class ProductsReportProvider : ReportProvider
                 new ("State", "string"),
                 new ("AppId", "string"),
                 new ("Product", "string"),
-                new ("Quantity", "decimal"),
-                new ("Currency", "string"),
-                new ("CurrencyAmount", "decimal")
+                new ("Quantity", "integer"),
+                new ("CurrencyAmount", "amount"),
+                new ("Currency", "string")
             },
             Charts =
             {
                 new ()
                 {
-                    Name = "Summary by products",
+                    Name = "Summary",
                     Groups = { "AppId", "Currency", "State", "Product" },
                     Aggregates = { "Quantity", "CurrencyAmount" },
                     Totals = { "State" }

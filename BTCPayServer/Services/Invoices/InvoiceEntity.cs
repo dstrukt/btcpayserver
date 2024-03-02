@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Globalization;
 using System.Linq;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Client.Models;
@@ -386,7 +387,7 @@ namespace BTCPayServer.Services.Invoices
         }
         public void UpdateTotals()
         {
-            Rates = new Dictionary<string, decimal>();
+            Rates = new Dictionary<string, decimal>(StringComparer.InvariantCultureIgnoreCase);
             foreach (var p in GetPaymentMethods())
             {
                 Rates.TryAdd(p.Currency, p.Rate);
@@ -591,14 +592,14 @@ namespace BTCPayServer.Services.Invoices
                 cryptoInfo.CryptoCode = cryptoCode;
                 cryptoInfo.PaymentType = info.GetId().PaymentType.ToString();
                 cryptoInfo.Rate = info.Rate;
-                cryptoInfo.Price = subtotalPrice.ToString();
+                cryptoInfo.Price = subtotalPrice.ToString(CultureInfo.InvariantCulture);
 
-                cryptoInfo.Due = accounting.Due.ToString();
-                cryptoInfo.Paid = accounting.Paid.ToString();
-                cryptoInfo.TotalDue = accounting.TotalDue.ToString();
-                cryptoInfo.NetworkFee = accounting.NetworkFee.ToString();
+                cryptoInfo.Due = accounting.Due.ToString(CultureInfo.InvariantCulture);
+                cryptoInfo.Paid = accounting.Paid.ToString(CultureInfo.InvariantCulture);
+                cryptoInfo.TotalDue = accounting.TotalDue.ToString(CultureInfo.InvariantCulture);
+                cryptoInfo.NetworkFee = accounting.NetworkFee.ToString(CultureInfo.InvariantCulture);
                 cryptoInfo.TxCount = accounting.TxCount;
-                cryptoInfo.CryptoPaid = accounting.CryptoPaid.ToString();
+                cryptoInfo.CryptoPaid = accounting.CryptoPaid.ToString(CultureInfo.InvariantCulture);
 
                 cryptoInfo.Address = address;
 
@@ -935,6 +936,14 @@ namespace BTCPayServer.Services.Invoices
                 Status == InvoiceStatusLegacy.Invalid;
         }
 
+        public bool IsSettled()
+        {
+            return Status == InvoiceStatusLegacy.Confirmed ||
+                   Status == InvoiceStatusLegacy.Complete ||
+                   (Status == InvoiceStatusLegacy.Expired &&
+                    ExceptionStatus is InvoiceExceptionStatus.PaidLate or InvoiceExceptionStatus.PaidOver);
+        }
+
         public override int GetHashCode()
         {
             return HashCode.Combine(Status, ExceptionStatus);
@@ -970,7 +979,15 @@ namespace BTCPayServer.Services.Invoices
         }
         public override string ToString()
         {
-            return Status.ToModernStatus().ToString() + (ExceptionStatus == InvoiceExceptionStatus.None ? string.Empty : $" ({ToString(ExceptionStatus)})");
+            return Status.ToModernStatus() + ExceptionStatus switch
+            {
+                InvoiceExceptionStatus.PaidOver => " (paid over)",
+                InvoiceExceptionStatus.PaidLate => " (paid late)",
+                InvoiceExceptionStatus.PaidPartial => " (paid partial)",
+                InvoiceExceptionStatus.Marked => " (marked)",
+                InvoiceExceptionStatus.Invalid => " (invalid)",
+                _ => ""
+            };
         }
     }
 

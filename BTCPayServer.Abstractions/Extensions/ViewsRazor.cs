@@ -20,6 +20,15 @@ namespace BTCPayServer.Abstractions.Extensions
             Relative
         }
 
+        public static void SetBlazorAllowed(this ViewDataDictionary viewData, bool allowed)
+        {
+            viewData["BlazorAllowed"] = allowed;
+        }
+        public static bool IsBlazorAllowed(this ViewDataDictionary viewData)
+        {
+            return viewData["BlazorAllowed"] is not false;
+        }
+
         public static void SetActivePage<T>(this ViewDataDictionary viewData, T activePage, string title = null, string activeId = null)
             where T : IConvertible
         {
@@ -90,6 +99,14 @@ namespace BTCPayServer.Abstractions.Extensions
             var categoryAndPageMatch = (category == null || activeCategory.Equals(category, StringComparison.InvariantCultureIgnoreCase)) && page.Equals(activePage, StringComparison.InvariantCultureIgnoreCase);
             var idMatch = id == null || activeId == null || id.Equals(activeId);
             return categoryAndPageMatch && idMatch ? ActivePageClass : null;
+        }
+
+        public static HtmlString ToBrowserDate(this DateTimeOffset date, string netFormat, string jsDateFormat = "short", string jsTimeFormat = "short")
+        {
+            var dateTime = date.ToString("o", CultureInfo.InvariantCulture);
+            var displayDate = date.ToString(netFormat, CultureInfo.InvariantCulture);
+            var tooltip = dateTime.Replace("T", " ");
+            return new HtmlString($"<time datetime=\"{dateTime}\" data-date-style=\"{jsDateFormat}\" data-time-style=\"{jsTimeFormat}\" data-initial=\"localized\" data-bs-toggle=\"tooltip\" data-bs-title=\"{tooltip}\">{displayDate}</time>");
         }
 
         public static HtmlString ToBrowserDate(this DateTimeOffset date, DateDisplayFormat format = DateDisplayFormat.Localized)

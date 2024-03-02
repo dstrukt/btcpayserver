@@ -17,7 +17,11 @@
 
 @if (!ViewContext.ModelState.IsValid)
 {
-    <div asp-validation-summary="All" class="text-danger"></div>
+    <div asp-validation-summary="All"></div>
+}
+@if (this.Model.Method is WalletSetupMethod.Hardware)
+{
+	<partial name="LocalhostBrowserSupport" />
 }
 
 <template id="modal-template">

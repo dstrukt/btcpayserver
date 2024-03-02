@@ -13,6 +13,7 @@ using BTCPayServer.Client;
 using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
+using BTCPayServer.HostedServices.Webhooks;
 using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Payments;
@@ -22,6 +23,7 @@ using BTCPayServer.Security.Bitpay;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
+using BTCPayServer.Services.Mails;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
@@ -37,6 +39,7 @@ using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Controllers
 {
+   
     [Route("stores")]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
@@ -66,7 +69,10 @@ namespace BTCPayServer.Controllers
             IDataProtectionProvider dataProtector,
             IOptions<LightningNetworkOptions> lightningNetworkOptions,
             IOptions<ExternalServicesOptions> externalServiceOptions,
-            IHtmlHelper html)
+            IHtmlHelper html,
+            LightningClientFactoryService lightningClientFactoryService,
+            EmailSenderFactory emailSenderFactory,
+            WalletFileParsers onChainWalletParsers)
         {
             _RateFactory = rateFactory;
             _Repo = repo;
@@ -90,6 +96,9 @@ namespace BTCPayServer.Controllers
             _BtcpayServerOptions = btcpayServerOptions;
             _BTCPayEnv = btcpayEnv;
             _externalServiceOptions = externalServiceOptions;
+            _lightningClientFactoryService = lightningClientFactoryService;
+            _emailSenderFactory = emailSenderFactory;
+            _onChainWalletParsers = onChainWalletParsers;
             Html = html;
         }
 
@@ -112,6 +121,9 @@ namespace BTCPayServer.Controllers
         private readonly IFileService _fileService;
         private readonly EventAggregator _EventAggregator;
         private readonly IOptions<ExternalServicesOptions> _externalServiceOptions;
+        private readonly LightningClientFactoryService _lightningClientFactoryService;
+        private readonly EmailSenderFactory _emailSenderFactory;
+        private readonly WalletFileParsers _onChainWalletParsers;
 
         public string? GeneratedPairingCode { get; set; }
         public WebhookSender WebhookNotificationManager { get; }
@@ -124,13 +136,36 @@ namespace BTCPayServer.Controllers
         {
             get; set;
         }
+        
+        [AllowAnonymous]
+        [HttpGet("{storeId}/index")]
+        public async Task<IActionResult> Index(string storeId)
+        {
+            var userId = _UserManager.GetUserId(User);
+            if (string.IsNullOrEmpty(userId))
+                return Forbid();
+            
+            var store = await _Repo.FindStore(storeId, userId);
+            if (store is null)
+            {
+                return Forbid();
+            }
+            HttpContext.SetStoreData(store);
+            if (store.GetPermissionSet(userId).Contains(Policies.CanModifyStoreSettings, storeId))
+            {
+                return RedirectToAction("Dashboard", new { storeId });
+            }
+            if (store.GetPermissionSet(userId).Contains(Policies.CanViewInvoices, storeId))
+            {
+                return RedirectToAction("ListInvoices", "UIInvoice", new { storeId });
+            }
+            return View();
+        }
 
-        [HttpGet]
-        [Route("{storeId}/users")]
+        [HttpGet("{storeId}/users")]
         public async Task<IActionResult> StoreUsers()
         {
-            StoreUsersViewModel vm = new StoreUsersViewModel();
-            vm.Role = StoreRoleId.Guest.Role;
+            var vm = new StoreUsersViewModel { Role = StoreRoleId.Guest.Role };
             await FillUsers(vm);
             return View(vm);
         }
@@ -149,8 +184,7 @@ namespace BTCPayServer.Controllers
 
         public StoreData CurrentStore => HttpContext.GetStoreData();
 
-        [HttpPost]
-        [Route("{storeId}/users")]
+        [HttpPost("{storeId}/users")]
         public async Task<IActionResult> StoreUsers(string storeId, StoreUsersViewModel vm)
         {
             await FillUsers(vm);
@@ -404,6 +438,7 @@ namespace BTCPayServer.Controllers
             vm.CustomLogo = storeBlob.CustomLogo;
             vm.SoundFileId = storeBlob.SoundFileId;
             vm.HtmlTitle = storeBlob.HtmlTitle;
+            vm.SupportUrl = storeBlob.StoreSupportUrl;
             vm.DisplayExpirationTimer = (int)storeBlob.DisplayExpirationTimer.TotalMinutes;
             vm.ReceiptOptions = CheckoutAppearanceViewModel.ReceiptOptionsViewModel.Create(storeBlob.ReceiptOptions);
             vm.AutoDetectLanguage = storeBlob.AutoDetectLanguage;
@@ -470,7 +505,7 @@ namespace BTCPayServer.Controllers
                 var methodCriterion = model.PaymentMethodCriteria[index];
                 if (!string.IsNullOrWhiteSpace(methodCriterion.Value))
                 {
-                    if (!CurrencyValue.TryParse(methodCriterion.Value, out var value))
+                    if (!CurrencyValue.TryParse(methodCriterion.Value, out _))
                     {
                         model.AddModelError(viewModel => viewModel.PaymentMethodCriteria[index].Value,
                             $"{methodCriterion.PaymentMethod}: Invalid format. Make sure to enter a valid amount and currency code. Examples: '5 USD', '0.001 BTC'", this);
@@ -579,6 +614,7 @@ namespace BTCPayServer.Controllers
             blob.CustomLogo = model.CustomLogo;
             blob.CustomCSS = model.CustomCSS;
             blob.HtmlTitle = string.IsNullOrWhiteSpace(model.HtmlTitle) ? null : model.HtmlTitle;
+            blob.StoreSupportUrl = string.IsNullOrWhiteSpace(model.SupportUrl) ? null : model.SupportUrl;
             blob.DisplayExpirationTimer = TimeSpan.FromMinutes(model.DisplayExpirationTimer);
             blob.AutoDetectLanguage = model.AutoDetectLanguage;
             blob.DefaultLang = model.DefaultLang;
@@ -635,12 +671,12 @@ namespace BTCPayServer.Controllers
                             WalletId = new WalletId(store.Id, paymentMethodId.CryptoCode),
                             Enabled = !excludeFilters.Match(paymentMethodId) && strategy != null,
 #if ALTCOINS
-                            Collapsed = network is ElementsBTCPayNetwork elementsBTCPayNetwork && elementsBTCPayNetwork.NetworkCryptoCode != elementsBTCPayNetwork.CryptoCode && string.IsNullOrEmpty(value)
+                            Collapsed = network is Plugins.Altcoins.ElementsBTCPayNetwork elementsBTCPayNetwork && elementsBTCPayNetwork.NetworkCryptoCode != elementsBTCPayNetwork.CryptoCode && string.IsNullOrEmpty(value)
 #endif
                         });
                         break;
 
-                    case LNURLPayPaymentType lnurlPayPaymentType:
+                    case LNURLPayPaymentType:
                         break;
 
                     case LightningPaymentType _:
@@ -670,7 +706,6 @@ namespace BTCPayServer.Controllers
                 Id = store.Id,
                 StoreName = store.StoreName,
                 StoreWebsite = store.StoreWebsite,
-                StoreSupportUrl = storeBlob.StoreSupportUrl,
                 LogoFileId = storeBlob.LogoFileId,
                 CssFileId = storeBlob.CssFileId,
                 BrandColor = storeBlob.BrandColor,
@@ -680,6 +715,7 @@ namespace BTCPayServer.Controllers
                 InvoiceExpiration = (int)storeBlob.InvoiceExpiration.TotalMinutes,
                 DefaultCurrency = storeBlob.DefaultCurrency,
                 BOLT11Expiration = (long)storeBlob.RefundBOLT11Expiration.TotalDays,
+                Archived = store.Archived,
                 CanDelete = _Repo.CanDeleteStores()
             };
 
@@ -706,7 +742,6 @@ namespace BTCPayServer.Controllers
             }
 
             var blob = CurrentStore.GetStoreBlob();
-            blob.StoreSupportUrl = model.StoreSupportUrl;
             blob.AnyoneCanInvoice = model.AnyoneCanCreateInvoice;
             blob.NetworkFeeMode = model.NetworkFeeMode;
             blob.PaymentTolerance = model.PaymentTolerance;
@@ -827,6 +862,23 @@ namespace BTCPayServer.Controllers
             });
         }
 
+        [HttpPost("{storeId}/archive")]
+        [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie, Policy = Policies.CanModifyStoreSettings)]
+        public async Task<IActionResult> ToggleArchive(string storeId)
+        {
+            CurrentStore.Archived = !CurrentStore.Archived;
+            await _Repo.UpdateStore(CurrentStore);
+
+            TempData[WellKnownTempData.SuccessMessage] = CurrentStore.Archived
+                ? "The store has been archived and will no longer appear in the stores list by default."
+                : "The store has been unarchived and will appear in the stores list by default again.";
+
+            return RedirectToAction(nameof(GeneralSettings), new
+            {
+                storeId = CurrentStore.Id
+            });
+        }
+
         [HttpGet("{storeId}/delete")]
         public IActionResult DeleteStore(string storeId)
         {
@@ -841,11 +893,10 @@ namespace BTCPayServer.Controllers
             return RedirectToAction(nameof(UIHomeController.Index), "UIHome");
         }
 
-        private IEnumerable<AvailableRateProvider> GetSupportedExchanges()
+        private IEnumerable<RateSourceInfo> GetSupportedExchanges()
         {
             return _RateFactory.RateProviderFactory.AvailableRateProviders
-                .Where(r => !string.IsNullOrWhiteSpace(r.Name))
-                .OrderBy(s => s.Id, StringComparer.OrdinalIgnoreCase);
+                .OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase);
 
         }
 
@@ -949,7 +1000,7 @@ namespace BTCPayServer.Controllers
             var store = model.StoreId switch
             {
                 null => CurrentStore,
-                string id => await _Repo.FindStore(storeId, userId)
+                _ => await _Repo.FindStore(storeId, userId)
             };
             if (store == null)
                 return Challenge(AuthenticationSchemes.Cookie);
