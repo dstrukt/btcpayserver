@@ -1283,3 +1283,358 @@ main .sticky-header + [class*='table-responsive'] {
     background-color: var(--btcpay-bg-tile);
     color: var(--btcpay-body-text);
 }
+
+/* Point of Sale — Product Sales report */
+.product-sales__header {
+    /* Stack breadcrumb above the title/controls row (sticky-header is flex by default) */
+    flex-direction: column;
+    align-items: stretch;
+}
+.product-sales__header-row {
+    /* width:100% overrides the sticky-header `align-self:flex-start` so the row
+       spans full width and the controls sit hard right of the title/description */
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--btcpay-space-m);
+}
+.product-sales__search-wrap {
+    position: relative;
+    flex: 0 0 auto;
+    width: 19rem;
+    max-width: 100%;
+}
+.product-sales__search-icon {
+    position: absolute;
+    top: 50%;
+    left: .7rem;
+    transform: translateY(-50%);
+    color: var(--btcpay-body-text);
+    pointer-events: none;
+}
+.product-sales__search-icon svg {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+.product-sales__search-wrap .form-control {
+    padding-left: 2.35rem;
+    padding-right: 2rem;
+}
+.product-sales__search-wrap .form-control::-webkit-search-cancel-button {
+    display: none;
+}
+.product-sales__search-clear {
+    position: absolute;
+    top: 50%;
+    right: .5rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--btcpay-body-text-muted);
+}
+.product-sales__search-clear svg {
+    width: .9rem;
+    height: .9rem;
+}
+.product-sales__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+}
+/* Time-filter buttons get a green outline on hover rather than the default secondary fill */
+.product-sales__periods .btn-outline-secondary:hover {
+    color: var(--btcpay-primary);
+    border-color: var(--btcpay-primary);
+    background-color: transparent;
+}
+.product-sales__stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--btcpay-space-m);
+    margin-bottom: var(--btcpay-space-l);
+}
+@media (min-width: 992px) {
+    .product-sales__stats {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+.product-sales__stat {
+    padding: var(--btcpay-space-l);
+    background: var(--btcpay-bg-tile);
+    border: 1px solid var(--btcpay-body-border-light);
+    border-radius: var(--btcpay-border-radius-l);
+}
+.product-sales__stat-label {
+    margin-bottom: var(--btcpay-space-xs);
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-m);
+}
+.product-sales__stat-value {
+    font-size: var(--btcpay-font-size-xl);
+    font-weight: var(--btcpay-font-weight-bold);
+    line-height: 1.2;
+}
+/* Best seller shows a product name rather than a number — one step smaller so long names fit */
+.product-sales__stat-value--sm {
+    font-size: var(--btcpay-font-size-l);
+}
+.product-sales__stat-sub {
+    margin-top: var(--btcpay-space-xs);
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-s);
+}
+.product-sales__panel {
+    background: var(--btcpay-bg-tile);
+    border: 1px solid var(--btcpay-body-border-light);
+    border-radius: var(--btcpay-border-radius-l);
+}
+/* Reset bootstrap's `main [class*='table-responsive']` grid pull-out so the table
+   sits flush in the panel and its divider lines span the full container width. */
+.product-sales__panel .product-sales__view {
+    width: 100%;
+    margin: 0;
+}
+.product-sales__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--btcpay-space-m);
+    padding: var(--btcpay-space-m) var(--btcpay-space-l);
+}
+.product-sales__tabs {
+    display: flex;
+    gap: var(--btcpay-space-l);
+}
+.product-sales__tab {
+    padding: var(--btcpay-space-s) 0;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-l);
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.product-sales__tab:not(.active):hover {
+    border-bottom-color: var(--btcpay-primary);
+    color: var(--btcpay-body-text);
+}
+.product-sales__tab.active {
+    color: var(--btcpay-body-text);
+}
+.product-sales__tab-count {
+    color: var(--btcpay-body-text-muted);
+    font-weight: var(--btcpay-font-weight-normal);
+}
+.product-sales__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+}
+.product-sales__table {
+    border-top: 1px solid var(--btcpay-body-border-light);
+}
+/* No divider under the last row — the table sits flush to the panel's bottom edge.
+   For products the DOM last row is a (hidden) detail row, so also drop it on the last
+   product row via its trailing detail sibling. */
+.product-sales__table > tbody > tr:last-child > *,
+.product-sales__row:has(+ .product-sales__detail-row:last-child) > * {
+    border-bottom: 0;
+}
+.product-sales__table th {
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-s);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.product-sales__th--sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+/* Active (sorted) column is emphasized in full-strength text */
+.product-sales__th--sortable[aria-sort] {
+    color: var(--btcpay-body-text);
+}
+.product-sales__sort-caret {
+    display: inline-flex;
+    align-items: center;
+    margin-left: .25rem;
+    vertical-align: middle;
+}
+.product-sales__sort-caret .icon {
+    width: 1em;
+    height: 1em;
+    opacity: 0;
+    transition: transform .15s ease-in-out;
+}
+/* Chevron only shows on the active column; points up for ascending */
+.product-sales__th--sortable[aria-sort] .product-sales__sort-caret .icon {
+    opacity: 1;
+}
+.product-sales__th--sortable[aria-sort="ascending"] .product-sales__sort-caret .icon {
+    transform: rotate(180deg);
+}
+.product-sales__row {
+    cursor: pointer;
+}
+/* Slow movers (no sales in the period) stay visible but dimmed */
+.product-sales__row--empty > td {
+    opacity: .5;
+}
+.product-sales__category {
+    margin-left: var(--btcpay-space-s);
+    background: var(--btcpay-neutral-200);
+    color: var(--btcpay-body-text-muted);
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.product-sales__share {
+    display: flex;
+    align-items: center;
+    gap: var(--btcpay-space-s);
+}
+.product-sales__share-bar {
+    flex: 1;
+    max-width: 12rem;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--btcpay-neutral-200);
+    overflow: hidden;
+}
+.product-sales__share-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--btcpay-success);
+}
+.product-sales__share-pct {
+    min-width: 3ch;
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-s);
+    text-align: right;
+}
+.product-sales__chevron {
+    width: 1.5rem;
+    color: var(--btcpay-body-text-muted);
+}
+.product-sales__payment {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--btcpay-space-xs);
+    background: var(--btcpay-neutral-200);
+    color: var(--btcpay-body-text-muted);
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.product-sales__order-id {
+    color: var(--btcpay-body-text-muted);
+}
+/* Consistent left/right padding so table content lines up with the toolbar */
+.product-sales__table > :is(thead, tbody) > tr > :first-child {
+    padding-left: var(--btcpay-space-l);
+}
+.product-sales__table > :is(thead, tbody) > tr > :last-child {
+    padding-right: var(--btcpay-space-l);
+}
+.product-sales__payment-icon {
+    width: 1em;
+    height: 1em;
+}
+.product-sales__chevron svg {
+    transition: transform .15s ease-in-out;
+}
+.product-sales__row[aria-expanded="true"] .product-sales__chevron svg {
+    transform: rotate(90deg);
+}
+/* Inline per-product drill-down */
+.product-sales__detail-row > td {
+    padding: 0;
+}
+.product-sales__detail {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--btcpay-space-l);
+    padding: var(--btcpay-space-l);
+}
+@media (min-width: 768px) {
+    .product-sales__detail {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+.product-sales__detail-label {
+    margin-bottom: var(--btcpay-space-m);
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-s);
+    font-weight: var(--btcpay-font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.product-sales__bars {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--btcpay-space-s);
+    height: 8rem;
+}
+.product-sales__bar-col {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--btcpay-space-xs);
+    height: 100%;
+}
+.product-sales__bar-value {
+    font-size: var(--btcpay-font-size-s);
+    font-weight: var(--btcpay-font-weight-semibold);
+}
+.product-sales__bar {
+    width: 100%;
+    max-width: 2rem;
+    min-height: 2px;
+    border-radius: var(--btcpay-border-radius);
+    background: var(--btcpay-success);
+}
+.product-sales__bar-label {
+    color: var(--btcpay-body-text-muted);
+    font-size: var(--btcpay-font-size-s);
+}
+.product-sales__recent-list {
+    display: flex;
+    flex-direction: column;
+}
+.product-sales__recent-item {
+    display: flex;
+    align-items: center;
+    gap: var(--btcpay-space-m);
+    padding: var(--btcpay-space-s) 0;
+    border-bottom: 1px solid var(--btcpay-body-border-light);
+}
+.product-sales__recent-time {
+    flex: 1;
+}
+.product-sales__recent-order {
+    color: var(--btcpay-body-text-muted);
+}
+.product-sales__recent-qty {
+    color: var(--btcpay-body-text-muted);
+}
+.product-sales__recent-total {
+    min-width: 5ch;
+    font-weight: var(--btcpay-font-weight-semibold);
+    text-align: right;
+}
+.product-sales__view-all {
+    display: inline-block;
+    margin-top: var(--btcpay-space-m);
+    font-weight: var(--btcpay-font-weight-semibold);
+}

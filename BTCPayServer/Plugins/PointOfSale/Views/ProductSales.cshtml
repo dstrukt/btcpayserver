@@ -1,0 +1,231 @@
+@using BTCPayServer.Client
+@using BTCPayServer.Plugins.PointOfSale
+@using BTCPayServer.Plugins.PointOfSale.Models
+@model BTCPayServer.Plugins.PointOfSale.Models.ProductSalesViewModel
+@{
+    Layout = "_Layout";
+    ViewData.SetLayoutModel(new($"{nameof(PointOfSalePlugin)}-{Model.AppId}", StringLocalizer["Product Sales"]));
+
+    string PeriodUrl(ProductSalesPeriod? p) => Url.Action(nameof(BTCPayServer.Plugins.PointOfSale.Controllers.UIPointOfSaleController.ProductSales), new { appId = Model.AppId, period = p, tzOffset = Model.TzOffset });
+    var exportUrl = Url.Action(nameof(BTCPayServer.Plugins.PointOfSale.Controllers.UIPointOfSaleController.ProductSalesExport), new { appId = Model.AppId, period = Model.Period, tab = "products", tzOffset = Model.TzOffset });
+    var periodLabel = Model.Period switch
+    {
+        ProductSalesPeriod.Today => StringLocalizer["Today"],
+        ProductSalesPeriod.Week => StringLocalizer["This Week"],
+        ProductSalesPeriod.Month => StringLocalizer["This Month"],
+        _ => StringLocalizer["All Time"]
+    };
+}
+
+<div class="sticky-header product-sales__header">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a asp-controller="UIStores" asp-action="Dashboard" asp-route-storeId="@Model.StoreId" text-translate="true">Dashboard</a></li>
+            <li class="breadcrumb-item active" aria-current="page" text-translate="true">Product Sales</li>
+        </ol>
+    </nav>
+    <div class="product-sales__header-row">
+        <div class="product-sales__heading">
+            <h2 class="mb-1" text-translate="true">Product Sales</h2>
+            <p class="text-secondary mb-0">@Model.AppName <span>·</span> <span text-translate="true">All products and their sales performance</span></p>
+        </div>
+        <div class="product-sales__controls">
+            <div class="btn-group product-sales__periods" role="group" aria-label="@StringLocalizer["Time range"]">
+                <a class="btn @(Model.Period == ProductSalesPeriod.Today ? "btn-primary" : "btn-outline-secondary")" href="@PeriodUrl(ProductSalesPeriod.Today)" text-translate="true">Today</a>
+                <a class="btn @(Model.Period == ProductSalesPeriod.Week ? "btn-primary" : "btn-outline-secondary")" href="@PeriodUrl(ProductSalesPeriod.Week)" text-translate="true">This Week</a>
+                <a class="btn @(Model.Period == ProductSalesPeriod.Month ? "btn-primary" : "btn-outline-secondary")" href="@PeriodUrl(ProductSalesPeriod.Month)" text-translate="true">This Month</a>
+                <a class="btn @(Model.Period == null ? "btn-primary" : "btn-outline-secondary")" href="@PeriodUrl(null)" text-translate="true">All Time</a>
+            </div>
+            <a class="btn btn-secondary d-inline-flex align-items-center gap-2" id="ProductSalesExport" href="@exportUrl">
+                <vc:icon symbol="actions-download" />
+                <span text-translate="true">Export</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="product-sales__stats">
+    <div class="product-sales__stat">
+        <div class="product-sales__stat-label" text-translate="true">Items sold</div>
+        <div class="product-sales__stat-value">@Model.ItemsSold</div>
+    </div>
+    <div class="product-sales__stat">
+        <div class="product-sales__stat-label" text-translate="true">Revenue</div>
+        <div class="product-sales__stat-value" data-sensitive>@Model.RevenueFormatted</div>
+    </div>
+    <div class="product-sales__stat">
+        <div class="product-sales__stat-label" text-translate="true">Orders</div>
+        <div class="product-sales__stat-value">@Model.Orders</div>
+        <div class="product-sales__stat-sub">@ViewLocalizer["{0} items per order", Model.ItemsPerOrder]</div>
+    </div>
+    <div class="product-sales__stat">
+        <div class="product-sales__stat-label" text-translate="true">Best seller</div>
+        @if (Model.BestSeller != null)
+        {
+            <div class="product-sales__stat-value product-sales__stat-value--sm">@Model.BestSeller.Title</div>
+            <div class="product-sales__stat-sub">@ViewLocalizer["{0} sold · {1}% of all sales", Model.BestSeller.UnitsSold, Model.BestSeller.SharePercent]</div>
+        }
+        else
+        {
+            <div class="product-sales__stat-value product-sales__stat-value--sm">—</div>
+        }
+    </div>
+</div>
+
+<div class="product-sales__panel">
+    <div class="product-sales__toolbar">
+        <div class="product-sales__tabs" role="tablist">
+            <button type="button" class="product-sales__tab active" data-tab="products" role="tab">
+                <span text-translate="true">Products</span> <span class="product-sales__tab-count">(@Model.Products.Count)</span>
+            </button>
+            <button type="button" class="product-sales__tab" data-tab="orders" role="tab">
+                <span text-translate="true">Orders</span> <span class="product-sales__tab-count">(@Model.OrderList.Count)</span>
+            </button>
+        </div>
+        <div class="product-sales__filters">
+            <div class="product-sales__search-wrap">
+                <span class="product-sales__search-icon"><vc:icon symbol="actions-search" /></span>
+                <input type="search" class="form-control" id="ProductSalesSearch" placeholder="@StringLocalizer["Search products…"]" aria-label="@StringLocalizer["Search"]"
+                       data-ph-products="@StringLocalizer["Search products…"]" data-ph-orders="@StringLocalizer["Search orders…"]" />
+                <button type="button" class="product-sales__search-clear d-none" id="ProductSalesSearchClear" aria-label="@StringLocalizer["Clear search"]">
+                    <vc:icon symbol="cross" />
+                </button>
+            </div>
+            @if (Model.Categories.Any())
+            {
+                <select class="form-select w-auto" id="ProductSalesCategory" aria-label="@StringLocalizer["Category"]">
+                    <option value="" text-translate="true">All categories</option>
+                    @foreach (var c in Model.Categories)
+                    {
+                        <option value="@c.ToLowerInvariant()">@c</option>
+                    }
+                </select>
+            }
+        </div>
+    </div>
+
+    <div class="product-sales__view table-responsive" data-view="products">
+        <table class="table product-sales__table mb-0">
+            <thead>
+                <tr>
+                    <th class="product-sales__th--sortable" data-sort="name" data-sort-type="text"><span text-translate="true">Product</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="text-end product-sales__th--sortable" data-sort="units" data-sort-type="number"><span text-translate="true">Units sold</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="text-end product-sales__th--sortable" data-sort="revenue" data-sort-type="number"><span text-translate="true">Revenue</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="product-sales__th--sortable" data-sort="share" data-sort-type="number"><span text-translate="true">Share of sales</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Model.Products.Count; i++)
+                {
+                    var p = Model.Products[i];
+                    var max = p.Chart.Any() ? p.Chart.Max(b => b.Count) : 0;
+                    <tr class="product-sales__row @(p.UnitsSold == 0 ? "product-sales__row--empty" : "")" data-name="@p.Title.ToLowerInvariant()" data-category="@(p.Category?.ToLowerInvariant())" data-product="@p.Title" data-index="@i" aria-expanded="false"
+                        data-sort-name="@p.Title.ToLowerInvariant()" data-sort-units="@p.UnitsSold" data-sort-revenue="@p.Revenue.ToString(System.Globalization.CultureInfo.InvariantCulture)" data-sort-share="@p.SharePercent.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                        <td>
+                            <span class="product-sales__product-name">@p.Title</span>
+                            @if (!string.IsNullOrEmpty(p.Category))
+                            {
+                                <span class="badge product-sales__category">@p.Category</span>
+                            }
+                        </td>
+                        <td class="text-end product-sales__units">@p.UnitsSold</td>
+                        <td class="text-end" data-sensitive>@p.RevenueFormatted</td>
+                        <td>
+                            <div class="product-sales__share">
+                                <span class="product-sales__share-bar"><span class="product-sales__share-fill" style="width:@(p.SharePercent)%"></span></span>
+                                <span class="product-sales__share-pct">@p.SharePercent%</span>
+                            </div>
+                        </td>
+                        <td class="text-end product-sales__chevron"><vc:icon symbol="caret-right" /></td>
+                    </tr>
+                    <tr class="product-sales__detail-row d-none" data-detail="@i">
+                        <td colspan="5">
+                            <div class="product-sales__detail">
+                                <div class="product-sales__chart">
+                                    <div class="product-sales__detail-label">@ViewLocalizer["Sales — {0}", periodLabel.Value]</div>
+                                    <div class="product-sales__bars">
+                                        @foreach (var b in p.Chart)
+                                        {
+                                            <div class="product-sales__bar-col">
+                                                @if (b.Count > 0)
+                                                {
+                                                    <span class="product-sales__bar-value">@b.Count</span>
+                                                }
+                                                <span class="product-sales__bar" style="height:@(max > 0 ? b.Count * 100 / max : 0)%"></span>
+                                                <span class="product-sales__bar-label">@b.Label</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="product-sales__recent">
+                                    <div class="product-sales__detail-label" text-translate="true">Recent sales</div>
+                                    @if (p.RecentSales.Any())
+                                    {
+                                        <div class="product-sales__recent-list">
+                                            @foreach (var r in p.RecentSales)
+                                            {
+                                                <div class="product-sales__recent-item">
+                                                    <span class="product-sales__recent-time">@r.Date.ToBrowserDate()</span>
+                                                    <a class="product-sales__recent-order" href="@r.InvoiceUrl">#@(r.OrderId ?? r.InvoiceId)</a>
+                                                    <span class="product-sales__recent-qty">× @r.Quantity</span>
+                                                    <span class="product-sales__recent-total" data-sensitive>@r.SubtotalFormatted</span>
+                                                </div>
+                                            }
+                                        </div>
+                                        <a href="#" class="product-sales__view-all" data-product="@p.Title">@ViewLocalizer["View all {0} sales", p.Title] →</a>
+                                    }
+                                    else
+                                    {
+                                        <p class="text-secondary mb-0" text-translate="true">No sales in this period.</p>
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="product-sales__view table-responsive d-none" data-view="orders">
+        <table class="table product-sales__table mb-0">
+            <thead>
+                <tr>
+                    <th class="product-sales__th--sortable" data-sort="time" data-sort-type="number"><span text-translate="true">Time</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="product-sales__th--sortable" data-sort="order" data-sort-type="text"><span text-translate="true">Order</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="product-sales__th--sortable" data-sort="items" data-sort-type="text"><span text-translate="true">Items</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="product-sales__th--sortable" data-sort="payment" data-sort-type="text"><span text-translate="true">Payment</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                    <th class="text-end product-sales__th--sortable" data-sort="total" data-sort-type="number"><span text-translate="true">Total</span><span class="product-sales__sort-caret" aria-hidden="true"><vc:icon symbol="caret-down" /></span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var o in Model.OrderList)
+                {
+                    <tr class="product-sales__order" data-search="@($"{o.OrderId} {o.InvoiceId} {o.ItemsSummary}".ToLowerInvariant())"
+                        data-sort-time="@o.Date.ToUnixTimeMilliseconds()" data-sort-order="@((o.OrderId ?? o.InvoiceId)?.ToLowerInvariant())" data-sort-items="@o.ItemsSummary.ToLowerInvariant()" data-sort-payment="@(o.IsLightning ? "lightning" : "onchain")" data-sort-total="@o.Total.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                        <td class="product-sales__time">@o.Date.ToBrowserDate()</td>
+                        <td><a class="product-sales__order-id" href="@o.InvoiceUrl">#@(o.OrderId ?? o.InvoiceId)</a></td>
+                        <td>@o.ItemsSummary</td>
+                        <td>
+                            @if (o.IsLightning)
+                            {
+                                <span class="badge product-sales__payment"><vc:icon symbol="lightning" /> <span text-translate="true">Lightning</span></span>
+                            }
+                            else
+                            {
+                                <span class="badge product-sales__payment"><img src="~/imlegacy/bitcoin.svg" alt="Bitcoin" class="product-sales__payment-icon" /> <span text-translate="true">On-chain</span></span>
+                            }
+                        </td>
+                        <td class="text-end" data-sensitive>@o.TotalFormatted</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+@section PageFootContent {
+    <script src="~/js/pos/product-sales.js" asp-append-version="true"></script>
+}
