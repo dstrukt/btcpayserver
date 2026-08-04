@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Threading.Tasks;
+using BTCPayServer.Plugins.PointOfSale;
 using BTCPayServer.Services.Apps;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
@@ -39,6 +40,8 @@ public class AppTopItems : ViewComponent
         vm.AppType = app.AppType;
         vm.AppUrl = await appBaseType.ConfigureLink(app);
         vm.Name = app.Name;
+        if (app.AppType == PointOfSaleAppType.AppType)
+            vm.SalesUrl = Url.Action("ProductSales", "UIPointOfSale", new { appId });
 
         return View(vm);
     }

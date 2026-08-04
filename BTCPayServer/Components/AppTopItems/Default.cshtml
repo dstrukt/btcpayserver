@@ -13,6 +13,10 @@
                 <span text-translate="true">Top Items</span>
             }
         </h3>
+        @if (!string.IsNullOrEmpty(Model.SalesUrl))
+        {
+            <a href="@Model.SalesUrl" text-translate="true">View all</a>
+        }
     </header>
     @if (Model.InitialRendering)
     {

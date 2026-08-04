@@ -9,6 +9,7 @@ public class AppTopItemsViewModel
     public string Name { get; set; }
     public string AppType { get; set; }
     public string AppUrl { get; set; }
+    public string SalesUrl { get; set; }
     public string DataUrl { get; set; }
     public List<AppItemStats> Entries { get; set; }
     public List<int> SalesCount { get; set; }
