@@ -587,6 +587,251 @@ namespace BTCPayServer.Plugins.PointOfSale.Controllers
             return Json(recent);
         }
 
+        [Authorize(Policy = Policies.CanViewInvoices, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+        [HttpGet("{appId}/pos/sales")]
+        public async Task<IActionResult> ProductSales(string appId, ProductSalesPeriod? period = null, int? tzOffset = null)
+        {
+            var app = await _appService.GetApp(appId, PointOfSaleAppType.AppType);
+            if (app == null)
+                return NotFound();
+            return View("/Plugins/PointOfSale/Views/ProductSales.cshtml", await BuildProductSales(app, period, tzOffset));
+        }
+
+        [Authorize(Policy = Policies.CanViewInvoices, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+        [HttpGet("{appId}/pos/sales/export")]
+        public async Task<IActionResult> ProductSalesExport(string appId, ProductSalesPeriod? period = null, string tab = "products", int? tzOffset = null)
+        {
+            var app = await _appService.GetApp(appId, PointOfSaleAppType.AppType);
+            if (app == null)
+                return NotFound();
+            var vm = await BuildProductSales(app, period, tzOffset);
+            var csv = new StringBuilder();
+            if (tab == "orders")
+            {
+                csv.AppendLine("Time,Order,Items,Payment,Total");
+                foreach (var o in vm.OrderList)
+                    csv.AppendLine(string.Join(',', new[]
+                    {
+                        CsvCell(o.Date.UtcDateTime.ToString("u", CultureInfo.InvariantCulture)),
+                        CsvCell(o.OrderId ?? o.InvoiceId),
+                        CsvCell(o.ItemsSummary),
+                        CsvCell(o.IsLightning ? "Lightning" : "On-chain"),
+                        CsvCell(o.TotalFormatted)
+                    }));
+            }
+            else
+            {
+                csv.AppendLine("Product,Category,Units sold,Revenue,Share of sales");
+                foreach (var p in vm.Products)
+                    csv.AppendLine(string.Join(',', new[]
+                    {
+                        CsvCell(p.Title),
+                        CsvCell(p.Category),
+                        CsvCell(p.UnitsSold.ToString(CultureInfo.InvariantCulture)),
+                        CsvCell(p.RevenueFormatted),
+                        CsvCell($"{p.SharePercent}%")
+                    }));
+            }
+            var name = $"{app.Name}-{tab}-{(vm.Period?.ToString() ?? "AllTime")}.csv";
+            return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", name);
+        }
+
+        private static string CsvCell(string value)
+        {
+            value ??= string.Empty;
+            return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+                ? $"\"{value.Replace("\"", "\"\"")}\""
+                : value;
+        }
+
+        private async Task<ProductSalesViewModel> BuildProductSales(AppData app, ProductSalesPeriod? period, int? tzOffset = null)
+        {
+            var settings = app.GetSettings<PointOfSaleSettings>();
+            var currency = settings.Currency;
+            var items = AppService.Parse(settings.Template);
+
+            // Align day boundaries with the viewer's timezone. tzOffset is the browser's
+            // Date.getTimezoneOffset() (minutes to add to local to reach UTC), so the actual
+            // east-of-UTC offset is its negation.
+            var localOffset = TimeSpan.FromMinutes(-(tzOffset ?? 0));
+            var nowUtc = DateTimeOffset.UtcNow;
+            var nowLocal = nowUtc.ToOffset(localOffset);
+            var todayStart = new DateTimeOffset(nowLocal.Year, nowLocal.Month, nowLocal.Day, 0, 0, 0, localOffset);
+
+            // Query bounds must be UTC (offset 0) for Postgres; the local offset is only used
+            // in-memory for the chart buckets and their labels below.
+            DateTimeOffset? from = period switch
+            {
+                ProductSalesPeriod.Today => todayStart.ToUniversalTime(),
+                ProductSalesPeriod.Week => nowUtc - TimeSpan.FromDays(7),
+                ProductSalesPeriod.Month => nowUtc - TimeSpan.FromDays(30),
+                _ => null
+            };
+            var paidStatuses = new[] { InvoiceStatus.Processing.ToString(), InvoiceStatus.Settled.ToString() };
+            var invoices = (await AppService.GetInvoicesForApp(_invoiceRepository, app, from, paidStatuses))
+                .Where(e => e.Currency.Equals(currency, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(e => e.InvoiceTime)
+                .ToArray();
+
+            var titleByCode = new Dictionary<string, string>();
+            var categoryByCode = new Dictionary<string, string>();
+            foreach (var it in items)
+            {
+                if (it.Id is null) continue;
+                titleByCode[it.Id] = string.IsNullOrEmpty(it.Title) ? it.Id : it.Title;
+                categoryByCode[it.Id] = it.Categories?.FirstOrDefault();
+            }
+
+            var aggregate = AppService.AggregateInvoiceEntitiesForStats(items);
+            var units = new Dictionary<string, int>();
+            var revenue = new Dictionary<string, decimal>();
+            var datesByCode = new Dictionary<string, List<DateTimeOffset>>();
+            var recentByCode = new Dictionary<string, List<ProductSalesViewModel.RecentSale>>();
+            var orders = new List<ProductSalesViewModel.OrderRow>();
+
+            foreach (var inv in invoices)
+            {
+                var lineItems = aggregate(new List<AppService.InvoiceStatsItem>(), inv);
+                if (lineItems.Count == 0) continue;
+
+                decimal orderTotal = 0m;
+                var summaryParts = new List<string>();
+                var invoiceUrl = Url.Action(nameof(UIInvoiceController.Invoice), "UIInvoice", new { invoiceId = inv.Id });
+                foreach (var g in lineItems.GroupBy(li => li.ItemCode))
+                {
+                    var code = g.Key;
+                    var count = g.Count();
+                    var rev = g.Sum(x => x.FiatPrice);
+                    units[code] = units.GetValueOrDefault(code) + count;
+                    revenue[code] = revenue.GetValueOrDefault(code) + rev;
+                    orderTotal += rev;
+                    summaryParts.Add($"{titleByCode.GetValueOrDefault(code) ?? code} × {count}");
+
+                    if (!datesByCode.TryGetValue(code, out var dates))
+                        datesByCode[code] = dates = new List<DateTimeOffset>();
+                    for (var i = 0; i < count; i++) dates.Add(inv.InvoiceTime);
+
+                    if (!recentByCode.TryGetValue(code, out var recent))
+                        recentByCode[code] = recent = new List<ProductSalesViewModel.RecentSale>();
+                    recent.Add(new ProductSalesViewModel.RecentSale
+                    {
+                        Date = inv.InvoiceTime,
+                        OrderId = inv.Metadata?.OrderId,
+                        InvoiceId = inv.Id,
+                        InvoiceUrl = invoiceUrl,
+                        Quantity = count,
+                        SubtotalFormatted = _displayFormatter.Currency(rev, currency, DisplayFormatter.CurrencyFormat.Symbol)
+                    });
+                }
+
+                orders.Add(new ProductSalesViewModel.OrderRow
+                {
+                    Date = inv.InvoiceTime,
+                    OrderId = inv.Metadata?.OrderId,
+                    InvoiceId = inv.Id,
+                    InvoiceUrl = invoiceUrl,
+                    ItemsSummary = string.Join(" · ", summaryParts),
+                    IsLightning = inv.GetPayments(true).Any(p => (p.PaymentMethodId?.ToString() ?? "").Contains("LN")),
+                    Total = orderTotal,
+                    TotalFormatted = _displayFormatter.Currency(orderTotal, currency, DisplayFormatter.CurrencyFormat.Symbol)
+                });
+            }
+
+            var codes = new List<string>();
+            foreach (var it in items)
+                if (it.Id is not null && !codes.Contains(it.Id)) codes.Add(it.Id);
+            foreach (var c in units.Keys)
+                if (!codes.Contains(c)) codes.Add(c);
+
+            var totalUnits = units.Values.Sum();
+            var totalRevenue = revenue.Values.Sum();
+
+            // Time buckets for the per-product mini chart, spanning the selected window.
+            // Boundaries and labels are in the viewer's local time so bars align with local days.
+            var chartBuckets = new List<(DateTimeOffset start, DateTimeOffset end, string label)>();
+            switch (period)
+            {
+                case ProductSalesPeriod.Today:
+                    for (var i = 0; i < 6; i++)
+                    {
+                        var s = todayStart.AddHours(i * 4);
+                        chartBuckets.Add((s, s.AddHours(4), s.ToString("htt", CultureInfo.InvariantCulture).ToLowerInvariant()));
+                    }
+                    break;
+                case ProductSalesPeriod.Month:
+                    var end0 = todayStart.AddDays(1);
+                    for (var i = 5; i >= 0; i--)
+                    {
+                        var e = end0.AddDays(-i * 5);
+                        var s = e.AddDays(-5);
+                        chartBuckets.Add((s, e, s.ToString("M/d", CultureInfo.InvariantCulture)));
+                    }
+                    break;
+                case null:
+                    var earliest = datesByCode.Values.SelectMany(x => x).DefaultIfEmpty(nowUtc).Min().ToOffset(localOffset);
+                    var endAll = nowLocal;
+                    var totalDays = Math.Max(1d, (endAll - earliest).TotalDays);
+                    var step = totalDays / 6d;
+                    for (var i = 0; i < 6; i++)
+                    {
+                        var s = earliest.AddDays(step * i);
+                        var e = i == 5 ? endAll.AddSeconds(1) : earliest.AddDays(step * (i + 1));
+                        chartBuckets.Add((s, e, s.ToString("MMM", CultureInfo.InvariantCulture)));
+                    }
+                    break;
+                default: // Week
+                    for (var i = 6; i >= 0; i--)
+                    {
+                        var s = todayStart.AddDays(-i);
+                        chartBuckets.Add((s, s.AddDays(1), s.ToString("ddd", CultureInfo.InvariantCulture).Substring(0, 1)));
+                    }
+                    break;
+            }
+
+            var products = codes.Select(code =>
+            {
+                var prodDates = datesByCode.GetValueOrDefault(code) ?? new List<DateTimeOffset>();
+                return new ProductSalesViewModel.ProductRow
+                {
+                    ItemCode = code,
+                    Title = titleByCode.GetValueOrDefault(code) ?? code,
+                    Category = categoryByCode.GetValueOrDefault(code),
+                    UnitsSold = units.GetValueOrDefault(code),
+                    Revenue = revenue.GetValueOrDefault(code),
+                    RevenueFormatted = _displayFormatter.Currency(revenue.GetValueOrDefault(code), currency, DisplayFormatter.CurrencyFormat.Symbol),
+                    SharePercent = totalUnits > 0 ? Math.Round((decimal)units.GetValueOrDefault(code) / totalUnits * 100m, 0) : 0m,
+                    Chart = chartBuckets.Select(b => new ProductSalesViewModel.ChartBucket
+                    {
+                        Label = b.label,
+                        Count = prodDates.Count(d => d >= b.start && d < b.end)
+                    }).ToList(),
+                    RecentSales = (recentByCode.GetValueOrDefault(code) ?? new List<ProductSalesViewModel.RecentSale>())
+                        .OrderByDescending(r => r.Date).Take(5).ToList()
+                };
+            })
+            .OrderByDescending(p => p.UnitsSold)
+            .ThenBy(p => p.Title)
+            .ToList();
+
+            return new ProductSalesViewModel
+            {
+                AppId = app.Id,
+                StoreId = app.StoreDataId,
+                AppName = app.Name,
+                Currency = currency,
+                Period = period,
+                TzOffset = tzOffset,
+                ItemsSold = totalUnits,
+                RevenueFormatted = _displayFormatter.Currency(totalRevenue, currency, DisplayFormatter.CurrencyFormat.Symbol),
+                Orders = orders.Count,
+                ItemsPerOrder = orders.Count > 0 ? (totalUnits / (decimal)orders.Count).ToString("0.0", CultureInfo.InvariantCulture) : "0",
+                BestSeller = products.FirstOrDefault(p => p.UnitsSold > 0),
+                Categories = items.SelectMany(i => i.Categories ?? Array.Empty<string>()).Distinct().OrderBy(c => c).ToList(),
+                Products = products,
+                OrderList = orders
+            };
+        }
+
         [Authorize(Policy = Policies.CanViewStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         [HttpGet("{appId}/settings/pos")]
         public async Task<IActionResult> UpdatePointOfSale(string appId)
